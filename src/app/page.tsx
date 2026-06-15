@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Image from "next/image";
-import { getScheduleForDate, TEAM, getAllFutureShiftsForUser, formatDate } from "@/lib/rotation";
+import { getScheduleForDate, TEAM, getAllFutureShiftsForUser, formatDate, ApprovedSwap } from "@/lib/rotation";
 import { db } from "@/lib/firebase";
 import { collection, doc, onSnapshot, setDoc, query, orderBy, limit, addDoc, serverTimestamp, getDoc } from "firebase/firestore";
 
@@ -28,6 +28,16 @@ interface FutureChangeRequest {
   reason: string;
 }
 
+interface PendingSwap {
+  id: string;
+  fromUser: string;
+  fromDate: string;
+  fromShift: string;
+  toUser: string;
+  toDate: string;
+  toShift: string;
+}
+
 const DEFAULT_USER_PASSWORD = "123";
 
 export default function Home() {
@@ -51,6 +61,8 @@ export default function Home() {
   const [activityLog, setActivityLog] = useState<ActivityEntry[]>([]);
   const [resetRequests, setResetRequests] = useState<string[]>([]);
   const [futureRequests, setFutureRequests] = useState<FutureChangeRequest[]>([]);
+  const [pendingSwaps, setPendingSwaps] = useState<PendingSwap[]>([]);
+  const [approvedSwaps, setApprovedSwaps] = useState<ApprovedSwap[]>([]);
 
   const addLog = async (action: string) => {
     try {
@@ -72,13 +84,17 @@ export default function Home() {
         if (data.schedule) setSchedule(data.schedule);
         if (data.resetRequests) setResetRequests(data.resetRequests);
         if (data.futureRequests) setFutureRequests(data.futureRequests);
+        if (data.pendingSwaps) setPendingSwaps(data.pendingSwaps);
+        if (data.approvedSwaps) setApprovedSwaps(data.approvedSwaps);
       } else {
         // Init global state if not exists
         const sched = getScheduleForDate(new Date());
         setDoc(doc(db, "app_state", "global"), {
           schedule: sched,
           resetRequests: [],
-          futureRequests: []
+          futureRequests: [],
+          pendingSwaps: [],
+          approvedSwaps: []
         });
         setSchedule(sched);
       }
@@ -117,7 +133,6 @@ export default function Home() {
       setActivityLog(logs);
     });
 
-    // Simulate Splash Screen delay
     setTimeout(() => setLoading(false), 2000);
 
     return () => {
@@ -132,7 +147,7 @@ export default function Home() {
     if (schedule) {
       const today = new Date();
       if (today.getDay() === 0) today.setDate(today.getDate() + 1); // Sunday belongs to next week's schedule
-      const expectedSched = getScheduleForDate(today);
+      const expectedSched = getScheduleForDate(today, approvedSwaps);
 
       if (schedule.date !== expectedSched.date) {
         // Schedule is outdated! Roll it forward.
@@ -150,7 +165,7 @@ export default function Home() {
         rollOver();
       }
     }
-  }, [schedule]);
+  }, [schedule, approvedSwaps]);
 
   const handleResetRequest = async (name: string) => {
     if (!resetRequests.includes(name)) {
@@ -171,10 +186,9 @@ export default function Home() {
         return;
       }
     } else {
-      // User login logic
       const currentPwd = userPasswords[name] || DEFAULT_USER_PASSWORD;
       const pwd = prompt(`Ingrese su contraseña (por defecto es ${DEFAULT_USER_PASSWORD}):`);
-      if (pwd === null) return; // cancelled
+      if (pwd === null) return; 
       
       if (pwd !== currentPwd) {
         if (confirm("Contraseña incorrecta. ¿Olvidaste tu contraseña y deseas solicitar un restablecimiento al Administrador?")) {
@@ -217,21 +231,83 @@ export default function Home() {
 
   const handleFutureIssue = async (shiftDate: string, shiftName: string) => {
     if (!currentUser) return;
-    const reason = prompt(`Escribe una breve descripción del motivo para cambiar la fecha del ${formatDate(shiftDate)}:`);
-    if (!reason) return;
+    
+    const targetName = prompt(`Ingresa el nombre del compañero con quien deseas intercambiar (ejemplo: Gaston):\\nCompañeros: ${TEAM.filter(t => t !== currentUser.name).join(", ")}`);
+    if (!targetName) return;
 
-    const newRequest: FutureChangeRequest = {
-      id: Math.random().toString(36).substring(2, 9),
-      user: currentUser.name,
-      date: shiftDate,
-      shift: shiftName,
-      reason
-    };
+    // Normalize name
+    const targetUser = TEAM.find(t => t.toLowerCase() === targetName.toLowerCase().trim());
+    if (!targetUser) {
+      alert("El nombre ingresado no pertenece al equipo. Intenta nuevamente.");
+      return;
+    }
 
-    const newRequests = [...futureRequests, newRequest];
-    await setDoc(doc(db, "app_state", "global"), { futureRequests: newRequests }, { merge: true });
-    addLog(`📅 ${currentUser.name} solicitó un cambio para el futuro turno del ${shiftDate}.`);
-    alert("Tu solicitud de cambio futuro ha sido enviada al Administrador con éxito.");
+    // Find target user's next shift
+    const today = new Date();
+    if (today.getDay() === 0) today.setDate(today.getDate() + 1);
+    const targetShifts = getAllFutureShiftsForUser(targetUser, today, 1, approvedSwaps);
+    
+    if (targetShifts.length === 0) {
+      alert(`${targetUser} no tiene turnos asignados en el futuro cercano para intercambiar.`);
+      return;
+    }
+
+    const targetShift = targetShifts[0];
+
+    if (confirm(`El próximo turno de ${targetUser} es el ${formatDate(targetShift.date)} (${targetShift.shift}).\\n\\n¿Deseas proponerle cambiar tu turno del ${formatDate(shiftDate)} por el de él?`)) {
+      const newSwap: PendingSwap = {
+        id: Math.random().toString(36).substring(2, 9),
+        fromUser: currentUser.name,
+        fromDate: shiftDate,
+        fromShift: shiftName,
+        toUser: targetUser,
+        toDate: targetShift.date,
+        toShift: targetShift.shift
+      };
+
+      const newPending = [...pendingSwaps, newSwap];
+      await setDoc(doc(db, "app_state", "global"), { pendingSwaps: newPending }, { merge: true });
+      addLog(`📩 ${currentUser.name} le propuso un trueque de turnos a ${targetUser}.`);
+      alert(`¡Propuesta enviada a ${targetUser}! Cuando él inicie sesión podrá aceptarla o rechazarla.`);
+    }
+  };
+
+  const handleAcceptSwap = async (swap: PendingSwap) => {
+    const newPending = pendingSwaps.filter(s => s.id !== swap.id);
+    const newApproved = [...approvedSwaps, {
+      date1: swap.fromDate,
+      user1: swap.fromUser,
+      date2: swap.toDate,
+      user2: swap.toUser
+    }];
+
+    let newSchedule = schedule;
+    if (schedule && (schedule.date === swap.fromDate || schedule.date === swap.toDate)) {
+      newSchedule = getScheduleForDate(new Date(`${schedule.date}T12:00:00`), newApproved);
+    }
+
+    await setDoc(doc(db, "app_state", "global"), { 
+      pendingSwaps: newPending, 
+      approvedSwaps: newApproved,
+      ...(newSchedule && { schedule: newSchedule })
+    }, { merge: true });
+
+    addLog(`🤝 TRUEQUE: ${swap.fromUser} y ${swap.toUser} intercambiaron turnos exitosamente.`);
+    alert("¡Intercambio realizado! El calendario de todos ha sido actualizado mágicamente.");
+  };
+
+  const handleRejectSwap = async (swap: PendingSwap) => {
+    const newPending = pendingSwaps.filter(s => s.id !== swap.id);
+    await setDoc(doc(db, "app_state", "global"), { pendingSwaps: newPending }, { merge: true });
+    
+    // Add notification to the proposer
+    const proposerDoc = await getDoc(doc(db, "users", swap.fromUser));
+    const notifs = proposerDoc.exists() && proposerDoc.data().notifications ? proposerDoc.data().notifications : [];
+    await setDoc(doc(db, "users", swap.fromUser), { 
+      notifications: [...notifs, `${swap.toUser} ha rechazado tu propuesta de cambio de turno.`] 
+    }, { merge: true });
+
+    alert("Propuesta rechazada. Se ha notificado al compañero.");
   };
 
   const handleClearNotifications = async () => {
@@ -243,10 +319,9 @@ export default function Home() {
     const newMember = prompt("Ingrese el nombre del reemplazo:");
     if (!newMember) return;
     
-    // Add in-app notification to new member
     const newMemberDoc = await getDoc(doc(db, "users", newMember));
     const existingNotifs = newMemberDoc.exists() && newMemberDoc.data().notifications ? newMemberDoc.data().notifications : [];
-    const notificationText = `¡Atención! Has sido asignado como reemplazo de ${memberToReplace} para este sábado.`;
+    const notificationText = `¡Atención! Has sido asignado como reemplazo manual de ${memberToReplace} para este sábado.`;
     await setDoc(doc(db, "users", newMember), { notifications: [...existingNotifs, notificationText] }, { merge: true });
 
     alert(`Notificación In-App enviada a ${newMember} y al compañero de turno notificando el cambio.`);
@@ -260,7 +335,6 @@ export default function Home() {
       }, { merge: true });
     }
     
-    // Clear status of old member and set new member to pending
     await setDoc(doc(db, "users", memberToReplace), { status: "PENDING" }, { merge: true });
     await setDoc(doc(db, "users", newMember), { status: "PENDING" }, { merge: true });
   };
@@ -298,14 +372,18 @@ export default function Home() {
         
         <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           <h3 style={{ marginBottom: '10px' }}>Usuarios</h3>
-          {TEAM.map(member => (
-            <button key={member} className="btn btn-outline" onClick={() => handleLogin(member, "USER")} style={{ position: 'relative' }}>
-              Ingresar como {member}
-              {userNotifications[member]?.length > 0 && (
-                <span style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', backgroundColor: '#ef6c00', width: '12px', height: '12px', borderRadius: '50%' }}></span>
-              )}
-            </button>
-          ))}
+          {TEAM.map(member => {
+            const hasNotif = userNotifications[member]?.length > 0;
+            const hasSwap = pendingSwaps.some(s => s.toUser === member);
+            return (
+              <button key={member} className="btn btn-outline" onClick={() => handleLogin(member, "USER")} style={{ position: 'relative' }}>
+                Ingresar como {member}
+                {(hasNotif || hasSwap) && (
+                  <span style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', backgroundColor: hasSwap ? '#2e7d32' : '#ef6c00', width: '12px', height: '12px', borderRadius: '50%' }}></span>
+                )}
+              </button>
+            );
+          })}
           
           <h3 style={{ marginTop: '2rem', marginBottom: '10px' }}>Administrador</h3>
           <button className="btn btn-primary" onClick={() => handleLogin("Admin", "ADMIN")}>
@@ -339,12 +417,15 @@ export default function Home() {
             userName={currentUser.name} 
             status={userStatuses[currentUser.name] || "PENDING"}
             notifications={userNotifications[currentUser.name] || []}
-            futureRequests={futureRequests}
+            pendingSwaps={pendingSwaps.filter(s => s.toUser === currentUser.name)}
+            approvedSwaps={approvedSwaps}
             onConfirm={handleConfirm}
             onIssue={handleIssue}
             onFutureIssue={handleFutureIssue}
             onChangePassword={handleChangePassword}
             onClearNotifications={handleClearNotifications}
+            onAcceptSwap={handleAcceptSwap}
+            onRejectSwap={handleRejectSwap}
           />
         )}
 
@@ -355,6 +436,7 @@ export default function Home() {
             activityLog={activityLog}
             resetRequests={resetRequests}
             futureRequests={futureRequests}
+            approvedSwaps={approvedSwaps}
             onChangeAssignment={handleAdminChange}
             onResetPassword={handleResetPassword}
             onDismissFutureRequest={handleDismissFutureRequest}
@@ -365,13 +447,13 @@ export default function Home() {
   );
 }
 
-function UserView({ currentDate, schedule, userName, status, notifications, futureRequests, onConfirm, onIssue, onFutureIssue, onChangePassword, onClearNotifications }: { 
-  currentDate: Date, schedule: any, userName: string, status: Status, notifications: string[], futureRequests: FutureChangeRequest[], onConfirm: () => void, onIssue: () => void, onFutureIssue: (date: string, shift: string) => void, onChangePassword: () => void, onClearNotifications: () => void 
+function UserView({ currentDate, schedule, userName, status, notifications, pendingSwaps, approvedSwaps, onConfirm, onIssue, onFutureIssue, onChangePassword, onClearNotifications, onAcceptSwap, onRejectSwap }: { 
+  currentDate: Date, schedule: any, userName: string, status: Status, notifications: string[], pendingSwaps: PendingSwap[], approvedSwaps: ApprovedSwap[], onConfirm: () => void, onIssue: () => void, onFutureIssue: (date: string, shift: string) => void, onChangePassword: () => void, onClearNotifications: () => void, onAcceptSwap: (swap: PendingSwap) => void, onRejectSwap: (swap: PendingSwap) => void
 }) {
   const isSunday = currentDate.getDay() === 0;
   const searchFrom = isSunday ? new Date(currentDate.getTime() + 86400000) : currentDate;
   
-  const futureShifts = getAllFutureShiftsForUser(userName, searchFrom, 5);
+  const futureShifts = getAllFutureShiftsForUser(userName, searchFrom, 5, approvedSwaps);
   
   return (
     <div>
@@ -384,6 +466,23 @@ function UserView({ currentDate, schedule, userName, status, notifications, futu
           Cambiar mi clave
         </button>
       </div>
+
+      {pendingSwaps.map(swap => (
+        <div key={swap.id} className="glass-card" style={{ backgroundColor: 'rgba(46, 125, 50, 0.1)', border: '2px solid #4caf50', marginBottom: '24px', position: 'relative' }}>
+          <h3 style={{ color: '#4caf50', marginBottom: '12px', fontSize: '1.2rem' }}>🤝 ¡Propuesta de Trueque!</h3>
+          <p style={{ marginBottom: '16px', fontSize: '1.05rem', lineHeight: '1.5' }}>
+            <strong>{swap.fromUser}</strong> te propone intercambiar su turno del <strong>{formatDate(swap.fromDate)}</strong> a cambio de tu turno del <strong>{formatDate(swap.toDate)}</strong>.
+          </p>
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <button className="btn btn-success" onClick={() => onAcceptSwap(swap)} style={{ flex: 1, padding: '12px' }}>
+              Aceptar Trueque
+            </button>
+            <button className="btn btn-outline" onClick={() => onRejectSwap(swap)} style={{ flex: 1, padding: '12px', borderColor: '#d32f2f', color: '#d32f2f' }}>
+              Rechazar
+            </button>
+          </div>
+        </div>
+      ))}
 
       {notifications.length > 0 && (
         <div className="glass-card" style={{ backgroundColor: 'rgba(239, 108, 0, 0.1)', border: '1px solid rgba(239, 108, 0, 0.4)', marginBottom: '24px', position: 'relative' }}>
@@ -410,7 +509,6 @@ function UserView({ currentDate, schedule, userName, status, notifications, futu
           <div style={{ display: 'flex', overflowX: 'auto', gap: '16px', paddingBottom: '16px', scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'touch' }}>
             {futureShifts.map((shiftInfo, idx) => {
               const isCurrentWeek = shiftInfo.date === schedule.date;
-              const hasRequestedFutureChange = futureRequests.some(r => r.date === shiftInfo.date && r.user === userName);
 
               return (
                 <div key={idx} className="glass-card" style={{ minWidth: '85%', scrollSnapAlign: 'start', flexShrink: 0, position: 'relative', overflow: 'hidden' }}>
@@ -427,21 +525,17 @@ function UserView({ currentDate, schedule, userName, status, notifications, futu
                         {status === "PENDING" && (
                           <>
                             <button className="btn btn-success" onClick={onConfirm} style={{ padding: '8px', fontSize: '0.9rem' }}>Confirmar Asistencia</button>
-                            <button className="btn btn-warning" onClick={onIssue} style={{ padding: '8px', fontSize: '0.9rem' }}>Solicitar Cambio</button>
+                            <button className="btn btn-warning" onClick={onIssue} style={{ padding: '8px', fontSize: '0.9rem' }}>Solicitar Reemplazo al Admin</button>
                           </>
                         )}
                         {status === "CONFIRMED" && <div style={{ color: '#4caf50', fontWeight: 'bold', textAlign: 'center' }}>✓ Confirmado</div>}
-                        {status === "CHANGE_REQUESTED" && <div style={{ color: '#ff9800', fontWeight: 'bold', textAlign: 'center' }}>🔄 Cambio solicitado</div>}
+                        {status === "CHANGE_REQUESTED" && <div style={{ color: '#ff9800', fontWeight: 'bold', textAlign: 'center' }}>🔄 Solicitud enviada al Admin</div>}
                       </div>
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        {hasRequestedFutureChange ? (
-                          <div style={{ color: '#ff9800', fontWeight: 'bold', textAlign: 'center', fontSize: '0.9rem' }}>🔄 Solicitud enviada</div>
-                        ) : (
-                          <button className="btn btn-outline" onClick={() => onFutureIssue(shiftInfo.date, shiftInfo.shift)} style={{ padding: '8px', fontSize: '0.9rem' }}>
-                            Solicitar Cambio de Fecha
-                          </button>
-                        )}
+                        <button className="btn btn-outline" onClick={() => onFutureIssue(shiftInfo.date, shiftInfo.shift)} style={{ padding: '8px', fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                          <span>🤝</span> Proponer Trueque a Compañero
+                        </button>
                       </div>
                     )}
                   </div>
@@ -455,8 +549,8 @@ function UserView({ currentDate, schedule, userName, status, notifications, futu
   );
 }
 
-function AdminView({ schedule, statuses, activityLog, resetRequests, futureRequests, onChangeAssignment, onResetPassword, onDismissFutureRequest }: { 
-  schedule: any, statuses: Record<string, Status>, activityLog: ActivityEntry[], resetRequests: string[], futureRequests: FutureChangeRequest[], onChangeAssignment: (member: string) => void, onResetPassword: (member: string) => void, onDismissFutureRequest: (id: string) => void 
+function AdminView({ schedule, statuses, activityLog, resetRequests, futureRequests, approvedSwaps, onChangeAssignment, onResetPassword, onDismissFutureRequest }: { 
+  schedule: any, statuses: Record<string, Status>, activityLog: ActivityEntry[], resetRequests: string[], futureRequests: FutureChangeRequest[], approvedSwaps: ApprovedSwap[], onChangeAssignment: (member: string) => void, onResetPassword: (member: string) => void, onDismissFutureRequest: (id: string) => void 
 }) {
   const renderShift = (title: string, members: string[]) => (
     <div style={{ marginBottom: '24px' }}>
@@ -502,6 +596,22 @@ function AdminView({ schedule, statuses, activityLog, resetRequests, futureReque
       <div className="glass-card" style={{ backgroundColor: 'rgba(239, 108, 0, 0.1)', color: '#ef6c00', border: '1px solid rgba(239, 108, 0, 0.3)', marginBottom: '24px', fontSize: '0.9rem' }}>
         <strong>Nota:</strong> Los cambios manuales dispararán notificaciones In-App automáticas a los reemplazos.
       </div>
+
+      {approvedSwaps.length > 0 && (
+        <div style={{ marginBottom: '2rem' }}>
+          <h3 style={{ color: '#4caf50', borderBottom: '2px solid #4caf50', paddingBottom: '8px', marginBottom: '16px' }}>
+            Trueques Automatizados P2P
+          </h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {approvedSwaps.map((swap, idx) => (
+              <div key={idx} className="glass-card" style={{ border: '1px solid #4caf50', padding: '12px', fontSize: '0.9rem' }}>
+                <span style={{ color: '#4caf50', fontWeight: 'bold' }}>{swap.user1}</span> cambió con <span style={{ color: '#4caf50', fontWeight: 'bold' }}>{swap.user2}</span><br/>
+                <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>({formatDate(swap.date1)} ↔ {formatDate(swap.date2)})</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {futureRequests.length > 0 && (
         <div style={{ marginBottom: '2rem' }}>

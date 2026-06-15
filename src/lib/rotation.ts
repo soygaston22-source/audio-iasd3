@@ -17,6 +17,13 @@ function seededRandom(seed: number) {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 }
 
+export interface ApprovedSwap {
+  date1: string;
+  user1: string;
+  date2: string;
+  user2: string;
+}
+
 export function getWeekNumber(d: Date): { weekNo: number; year: number } {
   const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
   date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
@@ -25,7 +32,7 @@ export function getWeekNumber(d: Date): { weekNo: number; year: number } {
   return { weekNo, year: date.getUTCFullYear() };
 }
 
-export function getScheduleForDate(date: Date) {
+export function getScheduleForDate(date: Date, approvedSwaps: ApprovedSwap[] = []) {
   const { weekNo, year } = getWeekNumber(date);
   
   // A "block" is a 2-week period where all 8 members serve exactly once.
@@ -60,13 +67,29 @@ export function getScheduleForDate(date: Date) {
   // Saturday is 6
   const diff = 6 - day;
   dateObj.setUTCDate(dateObj.getUTCDate() + diff);
+  
+  const scheduleDate = dateObj.toISOString().split('T')[0];
+  let morning = [selectedMembers[0], selectedMembers[1]];
+  let afternoon = [selectedMembers[2], selectedMembers[3]];
+
+  // Apply approved swaps overrides
+  approvedSwaps.forEach(swap => {
+    if (swap.date1 === scheduleDate) {
+      morning = morning.map(m => m === swap.user1 ? swap.user2 : m);
+      afternoon = afternoon.map(m => m === swap.user1 ? swap.user2 : m);
+    }
+    if (swap.date2 === scheduleDate) {
+      morning = morning.map(m => m === swap.user2 ? swap.user1 : m);
+      afternoon = afternoon.map(m => m === swap.user2 ? swap.user1 : m);
+    }
+  });
 
   return {
-    morning: [selectedMembers[0], selectedMembers[1]],
-    afternoon: [selectedMembers[2], selectedMembers[3]],
+    morning,
+    afternoon,
     weekNo,
     year,
-    date: dateObj.toISOString().split('T')[0]
+    date: scheduleDate
   };
 }
 
@@ -88,13 +111,13 @@ export function formatDate(dateStr: string | Date): string {
   return formatted.charAt(0).toUpperCase() + formatted.slice(1);
 }
 
-export function getAllFutureShiftsForUser(userName: string, fromDate: Date = new Date(), limit: number = 5) {
+export function getAllFutureShiftsForUser(userName: string, fromDate: Date = new Date(), limit: number = 5, approvedSwaps: ApprovedSwap[] = []) {
   let searchDate = new Date(fromDate);
   const shifts = [];
   
   // Search up to 2 years ahead if necessary
   for (let i = 0; i < 104; i++) { 
-    const sched = getScheduleForDate(searchDate);
+    const sched = getScheduleForDate(searchDate, approvedSwaps);
     if (sched.morning.includes(userName)) {
       shifts.push({ shift: "Mañana", date: sched.date });
     } else if (sched.afternoon.includes(userName)) {
