@@ -382,7 +382,7 @@ function UserView({ currentDate, schedule, userName, status, notifications, futu
       ) : (
         <div>
           <h4 style={{ marginBottom: '12px', fontSize: '1.1rem' }}>Mis Próximos Turnos</h4>
-          <div style={{ display: 'flex', overflowX: 'auto', gap: '16px', paddingBottom: '16px', snapType: 'x mandatory', WebkitOverflowScrolling: 'touch' }}>
+          <div style={{ display: 'flex', overflowX: 'auto', gap: '16px', paddingBottom: '16px', scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'touch' }}>
             {futureShifts.map((shiftInfo, idx) => {
               const isCurrentWeek = shiftInfo.date === schedule.date;
               const hasRequestedFutureChange = futureRequests.some(r => r.date === shiftInfo.date && r.user === userName);
