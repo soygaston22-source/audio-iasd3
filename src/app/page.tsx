@@ -229,40 +229,18 @@ export default function Home() {
     alert("Notificación enviada al Administrador. Quedará registrado.");
   };
 
-  const handleFutureIssue = async (shiftDate: string, shiftName: string) => {
+  const handleFutureIssue = async (shiftDate: string, shiftName: string, targetUser: string, targetDate: string, targetShift: string) => {
     if (!currentUser) return;
     
-    const targetName = prompt(`Ingresa el nombre del compañero con quien deseas intercambiar (ejemplo: Gaston):\\nCompañeros: ${TEAM.filter(t => t !== currentUser.name).join(", ")}`);
-    if (!targetName) return;
-
-    // Normalize name
-    const targetUser = TEAM.find(t => t.toLowerCase() === targetName.toLowerCase().trim());
-    if (!targetUser) {
-      alert("El nombre ingresado no pertenece al equipo. Intenta nuevamente.");
-      return;
-    }
-
-    // Find target user's next shift
-    const today = new Date();
-    if (today.getDay() === 0) today.setDate(today.getDate() + 1);
-    const targetShifts = getAllFutureShiftsForUser(targetUser, today, 1, approvedSwaps);
-    
-    if (targetShifts.length === 0) {
-      alert(`${targetUser} no tiene turnos asignados en el futuro cercano para intercambiar.`);
-      return;
-    }
-
-    const targetShift = targetShifts[0];
-
-    if (confirm(`El próximo turno de ${targetUser} es el ${formatDate(targetShift.date)} (${targetShift.shift}).\\n\\n¿Deseas proponerle cambiar tu turno del ${formatDate(shiftDate)} por el de él?`)) {
+    if (confirm(`Estás a punto de proponer cambiar tu turno del ${formatDate(shiftDate)} por el turno del ${formatDate(targetDate)} de ${targetUser}. ¿Confirmar envío de propuesta?`)) {
       const newSwap: PendingSwap = {
         id: Math.random().toString(36).substring(2, 9),
         fromUser: currentUser.name,
         fromDate: shiftDate,
         fromShift: shiftName,
         toUser: targetUser,
-        toDate: targetShift.date,
-        toShift: targetShift.shift
+        toDate: targetDate,
+        toShift: targetShift
       };
 
       const newPending = [...pendingSwaps, newSwap];
@@ -339,6 +317,21 @@ export default function Home() {
     await setDoc(doc(db, "users", newMember), { status: "PENDING" }, { merge: true });
   };
 
+  const handleAdminRejectChange = async (member: string) => {
+    if (!confirm(`¿Estás seguro de rechazar la solicitud de cambio de ${member}?`)) return;
+    
+    await setDoc(doc(db, "users", member), { status: "PENDING" }, { merge: true });
+    
+    const memberDoc = await getDoc(doc(db, "users", member));
+    const existingNotifs = memberDoc.exists() && memberDoc.data().notifications ? memberDoc.data().notifications : [];
+    await setDoc(doc(db, "users", member), { 
+      notifications: [...existingNotifs, `El Administrador ha rechazado tu solicitud de reemplazo para este sábado. Debes asistir o buscar un trueque.`] 
+    }, { merge: true });
+
+    addLog(`❌ Administrador rechazó la solicitud de cambio de ${member}.`);
+    alert(`Solicitud rechazada. Se ha notificado a ${member}.`);
+  };
+
   const handleResetPassword = async (userName: string) => {
     await setDoc(doc(db, "users", userName), { password: DEFAULT_USER_PASSWORD }, { merge: true });
     const newReqs = resetRequests.filter(name => name !== userName);
@@ -351,6 +344,22 @@ export default function Home() {
     const newReqs = futureRequests.filter(req => req.id !== id);
     await setDoc(doc(db, "app_state", "global"), { futureRequests: newReqs }, { merge: true });
     alert("Solicitud marcada como leída y eliminada de la lista.");
+  };
+
+  const handleRejectFutureRequest = async (req: FutureChangeRequest) => {
+    if (!confirm(`¿Estás seguro de rechazar la solicitud futura de ${req.user}?`)) return;
+
+    const newReqs = futureRequests.filter(r => r.id !== req.id);
+    await setDoc(doc(db, "app_state", "global"), { futureRequests: newReqs }, { merge: true });
+    
+    const userDoc = await getDoc(doc(db, "users", req.user));
+    const existingNotifs = userDoc.exists() && userDoc.data().notifications ? userDoc.data().notifications : [];
+    await setDoc(doc(db, "users", req.user), { 
+      notifications: [...existingNotifs, `El Administrador ha denegado tu solicitud de cambio para el turno del ${formatDate(req.date)}.`] 
+    }, { merge: true });
+
+    addLog(`❌ Administrador denegó la solicitud futura de ${req.user} para el ${req.date}.`);
+    alert(`Solicitud denegada. Se ha notificado a ${req.user}.`);
   };
 
   if (loading) {
@@ -438,8 +447,10 @@ export default function Home() {
             futureRequests={futureRequests}
             approvedSwaps={approvedSwaps}
             onChangeAssignment={handleAdminChange}
+            onRejectAssignment={handleAdminRejectChange}
             onResetPassword={handleResetPassword}
             onDismissFutureRequest={handleDismissFutureRequest}
+            onRejectFutureRequest={handleRejectFutureRequest}
           />
         )}
       </main>
@@ -448,15 +459,84 @@ export default function Home() {
 }
 
 function UserView({ currentDate, schedule, userName, status, notifications, pendingSwaps, approvedSwaps, onConfirm, onIssue, onFutureIssue, onChangePassword, onClearNotifications, onAcceptSwap, onRejectSwap }: { 
-  currentDate: Date, schedule: any, userName: string, status: Status, notifications: string[], pendingSwaps: PendingSwap[], approvedSwaps: ApprovedSwap[], onConfirm: () => void, onIssue: () => void, onFutureIssue: (date: string, shift: string) => void, onChangePassword: () => void, onClearNotifications: () => void, onAcceptSwap: (swap: PendingSwap) => void, onRejectSwap: (swap: PendingSwap) => void
+  currentDate: Date, schedule: any, userName: string, status: Status, notifications: string[], pendingSwaps: PendingSwap[], approvedSwaps: ApprovedSwap[], onConfirm: () => void, onIssue: () => void, onFutureIssue: (date: string, shift: string, targetUser: string, targetDate: string, targetShift: string) => void, onChangePassword: () => void, onClearNotifications: () => void, onAcceptSwap: (swap: PendingSwap) => void, onRejectSwap: (swap: PendingSwap) => void
 }) {
   const isSunday = currentDate.getDay() === 0;
   const searchFrom = isSunday ? new Date(currentDate.getTime() + 86400000) : currentDate;
   
   const futureShifts = getAllFutureShiftsForUser(userName, searchFrom, 5, approvedSwaps);
   
+  const [swapModalState, setSwapModalState] = useState<{
+    shiftDate: string;
+    shiftName: string;
+    targetUser: string | null;
+    targetShifts: { date: string, shift: string }[] | null;
+  } | null>(null);
+
   return (
     <div>
+      {swapModalState && (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.85)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div className="glass-card" style={{ width: '100%', maxWidth: '400px', padding: '24px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <h3 style={{ marginBottom: '16px', fontSize: '1.4rem' }}>🤝 Proponer Trueque</h3>
+            <p style={{ marginBottom: '16px', fontSize: '1rem', color: 'var(--glass-text)' }}>
+              Vas a ofrecer tu turno del <strong>{formatDate(swapModalState.shiftDate)}</strong>.
+            </p>
+            
+            {!swapModalState.targetUser ? (
+              <>
+                <h4 style={{ marginBottom: '12px' }}>¿Con quién quieres cambiar?</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {TEAM.filter(m => m !== userName).map(member => (
+                    <button 
+                      key={member}
+                      className="btn btn-outline"
+                      style={{ padding: '10px' }}
+                      onClick={() => {
+                        const shifts = getAllFutureShiftsForUser(member, searchFrom, 5, approvedSwaps);
+                        setSwapModalState({ ...swapModalState, targetUser: member, targetShifts: shifts });
+                      }}
+                    >
+                      {member}
+                    </button>
+                  ))}
+                  <button className="btn btn-outline" onClick={() => setSwapModalState(null)} style={{ marginTop: '16px', borderColor: '#d32f2f', color: '#d32f2f' }}>Cancelar</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h4 style={{ marginBottom: '12px' }}>Elige el turno de {swapModalState.targetUser}</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {swapModalState.targetShifts?.length === 0 ? (
+                    <p style={{ color: 'var(--text-muted)' }}>{swapModalState.targetUser} no tiene turnos asignados próximamente.</p>
+                  ) : (
+                    swapModalState.targetShifts?.map((s, idx) => (
+                      <button 
+                        key={idx}
+                        className="btn btn-outline"
+                        style={{ textAlign: 'left', padding: '12px', borderColor: 'var(--primary-red)' }}
+                        onClick={() => {
+                          onFutureIssue(swapModalState.shiftDate, swapModalState.shiftName, swapModalState.targetUser!, s.date, s.shift);
+                          setSwapModalState(null);
+                        }}
+                      >
+                        <span style={{ fontWeight: 'bold', fontSize: '1.1rem', color: 'white' }}>{formatDate(s.date)}</span><br/>
+                        <span style={{ fontSize: '0.9rem', color: 'var(--glass-text)' }}>Turno {s.shift}</span>
+                      </button>
+                    ))
+                  )}
+                  
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+                    <button className="btn btn-outline" onClick={() => setSwapModalState({ ...swapModalState, targetUser: null, targetShifts: null })} style={{ flex: 1 }}>Atrás</button>
+                    <button className="btn btn-outline" onClick={() => setSwapModalState(null)} style={{ flex: 1, borderColor: '#d32f2f', color: '#d32f2f' }}>Cancelar</button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
         <h4 style={{ color: 'var(--text-muted)', marginBottom: '4px', textTransform: 'uppercase', fontSize: '0.8rem', letterSpacing: '1px' }}>
           {formatDate(currentDate)}
@@ -533,7 +613,7 @@ function UserView({ currentDate, schedule, userName, status, notifications, pend
                       </div>
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        <button className="btn btn-outline" onClick={() => onFutureIssue(shiftInfo.date, shiftInfo.shift)} style={{ padding: '8px', fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                        <button className="btn btn-outline" onClick={() => setSwapModalState({ shiftDate: shiftInfo.date, shiftName: shiftInfo.shift, targetUser: null, targetShifts: null })} style={{ padding: '8px', fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
                           <span>🤝</span> Proponer Trueque a Compañero
                         </button>
                       </div>
@@ -549,8 +629,8 @@ function UserView({ currentDate, schedule, userName, status, notifications, pend
   );
 }
 
-function AdminView({ schedule, statuses, activityLog, resetRequests, futureRequests, approvedSwaps, onChangeAssignment, onResetPassword, onDismissFutureRequest }: { 
-  schedule: any, statuses: Record<string, Status>, activityLog: ActivityEntry[], resetRequests: string[], futureRequests: FutureChangeRequest[], approvedSwaps: ApprovedSwap[], onChangeAssignment: (member: string) => void, onResetPassword: (member: string) => void, onDismissFutureRequest: (id: string) => void 
+function AdminView({ schedule, statuses, activityLog, resetRequests, futureRequests, approvedSwaps, onChangeAssignment, onRejectAssignment, onResetPassword, onDismissFutureRequest, onRejectFutureRequest }: { 
+  schedule: any, statuses: Record<string, Status>, activityLog: ActivityEntry[], resetRequests: string[], futureRequests: FutureChangeRequest[], approvedSwaps: ApprovedSwap[], onChangeAssignment: (member: string) => void, onRejectAssignment: (member: string) => void, onResetPassword: (member: string) => void, onDismissFutureRequest: (id: string) => void, onRejectFutureRequest: (req: FutureChangeRequest) => void 
 }) {
   const renderShift = (title: string, members: string[]) => (
     <div style={{ marginBottom: '24px' }}>
@@ -573,12 +653,22 @@ function AdminView({ schedule, statuses, activityLog, resetRequests, futureReque
                 <strong style={{ display: 'block', fontSize: '1.1rem' }}>{member}</strong>
                 <span style={{ color: statusColor, fontSize: '0.85rem', fontWeight: 'bold', textShadow: '0 1px 2px rgba(255,255,255,0.8)' }}>{statusText}</span>
               </div>
-              <button 
-                onClick={() => onChangeAssignment(member)}
-                style={{ padding: '8px 12px', background: 'rgba(255,255,255,0.2)', border: '1px solid var(--glass-border)', color: 'var(--glass-text)', borderRadius: '6px', cursor: 'pointer', backdropFilter: 'blur(4px)' }}
-              >
-                Cambiar
-              </button>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                {status === 'CHANGE_REQUESTED' && (
+                  <button 
+                    onClick={() => onRejectAssignment(member)}
+                    style={{ padding: '8px 12px', background: 'rgba(211,47,47,0.2)', border: '1px solid #d32f2f', color: '#d32f2f', borderRadius: '6px', cursor: 'pointer', backdropFilter: 'blur(4px)' }}
+                  >
+                    Rechazar
+                  </button>
+                )}
+                <button 
+                  onClick={() => onChangeAssignment(member)}
+                  style={{ padding: '8px 12px', background: 'rgba(255,255,255,0.2)', border: '1px solid var(--glass-border)', color: 'var(--glass-text)', borderRadius: '6px', cursor: 'pointer', backdropFilter: 'blur(4px)' }}
+                >
+                  Cambiar
+                </button>
+              </div>
             </div>
           );
         })}
@@ -626,12 +716,20 @@ function AdminView({ schedule, statuses, activityLog, resetRequests, futureReque
                     <strong style={{ display: 'block', fontSize: '1.1rem', color: '#ff9800' }}>{req.user}</strong>
                     <span style={{ fontSize: '0.85rem', color: 'var(--glass-text)', textTransform: 'capitalize' }}>{formatDate(req.date)} - {req.shift}</span>
                   </div>
-                  <button 
-                    onClick={() => onDismissFutureRequest(req.id)}
-                    style={{ padding: '6px 10px', background: 'none', color: 'var(--glass-text)', border: '1px solid var(--glass-border)', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem' }}
-                  >
-                    Marcar Leída
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button 
+                      onClick={() => onRejectFutureRequest(req)}
+                      style={{ padding: '6px 10px', background: 'rgba(211,47,47,0.2)', color: '#d32f2f', border: '1px solid #d32f2f', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem' }}
+                    >
+                      Rechazar
+                    </button>
+                    <button 
+                      onClick={() => onDismissFutureRequest(req.id)}
+                      style={{ padding: '6px 10px', background: 'none', color: 'var(--glass-text)', border: '1px solid var(--glass-border)', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem' }}
+                    >
+                      Aprobar/Leída
+                    </button>
+                  </div>
                 </div>
                 <div style={{ background: 'rgba(0,0,0,0.2)', padding: '10px', borderRadius: '8px', fontSize: '0.9rem', fontStyle: 'italic', color: '#e0e0e0' }}>
                   "{req.reason}"
