@@ -127,6 +127,31 @@ export default function Home() {
     };
   }, []);
 
+  useEffect(() => {
+    // Check if the current global schedule is outdated and roll over to the new week.
+    if (schedule) {
+      const today = new Date();
+      if (today.getDay() === 0) today.setDate(today.getDate() + 1); // Sunday belongs to next week's schedule
+      const expectedSched = getScheduleForDate(today);
+
+      if (schedule.date !== expectedSched.date) {
+        // Schedule is outdated! Roll it forward.
+        const rollOver = async () => {
+          TEAM.forEach(member => {
+            setDoc(doc(db, "users", member), { status: "PENDING" }, { merge: true });
+          });
+          await setDoc(doc(db, "app_state", "global"), { schedule: expectedSched }, { merge: true });
+          await addDoc(collection(db, "activity_logs"), {
+            action: `🔄 Sistema automático: Comenzó la semana del ${formatDate(expectedSched.date)}.`,
+            date: new Date().toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' }),
+            timestamp: serverTimestamp()
+          });
+        };
+        rollOver();
+      }
+    }
+  }, [schedule]);
+
   const handleResetRequest = async (name: string) => {
     if (!resetRequests.includes(name)) {
       const newReqs = [...resetRequests, name];
