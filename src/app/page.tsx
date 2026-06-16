@@ -39,6 +39,30 @@ interface PendingSwap {
 }
 
 const DEFAULT_USER_PASSWORD = "123";
+const PUBLIC_VAPID_KEY = "BKg1ejz3VTJz5cnWTqtNnahqycmcrTm2JmTVCE2bhkcPkGRWO2syvyMW-aeojV0JmQuNg72GiM-FDGPiIjWrgFs";
+
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+const sendPushNotification = async (targetUser: string, title: string, body: string) => {
+  try {
+    await fetch('/api/push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: targetUser, title, body })
+    });
+  } catch (err) {
+    console.error("Error sending push request:", err);
+  }
+};
 
 export default function Home() {
   const [loading, setLoading] = useState(true);
@@ -247,6 +271,7 @@ export default function Home() {
       await setDoc(doc(db, "app_state", "global"), { pendingSwaps: newPending }, { merge: true });
       addLog(`📩 ${currentUser.name} le propuso un trueque de turnos a ${targetUser}.`);
       alert(`¡Propuesta enviada a ${targetUser}! Cuando él inicie sesión podrá aceptarla o rechazarla.`);
+      sendPushNotification(targetUser, "¡Propuesta de Trueque!", `${currentUser.name} te propone cambiar turnos.`);
     }
   };
 
@@ -272,6 +297,7 @@ export default function Home() {
 
     addLog(`🤝 TRUEQUE: ${swap.fromUser} y ${swap.toUser} intercambiaron turnos exitosamente.`);
     alert("¡Intercambio realizado! El calendario de todos ha sido actualizado mágicamente.");
+    sendPushNotification(swap.fromUser, "Trueque Aceptado", `${swap.toUser} ha aceptado tu propuesta de cambio de turno.`);
   };
 
   const handleRejectSwap = async (swap: PendingSwap) => {
@@ -286,6 +312,7 @@ export default function Home() {
     }, { merge: true });
 
     alert("Propuesta rechazada. Se ha notificado al compañero.");
+    sendPushNotification(swap.fromUser, "Trueque Rechazado", `${swap.toUser} ha rechazado tu propuesta de cambio de turno.`);
   };
 
   const handleClearNotifications = async () => {
@@ -304,6 +331,7 @@ export default function Home() {
 
     alert(`Notificación In-App enviada a ${newMember} y al compañero de turno notificando el cambio.`);
     addLog(`🛠️ Administrador cambió a ${memberToReplace} por ${newMember}.`);
+    sendPushNotification(newMember, "¡Nuevo Turno Asignado!", `El Administrador te ha asignado como reemplazo para este sábado.`);
     
     if (schedule) {
       const morning = schedule.morning.map(m => m === memberToReplace ? newMember : m);
@@ -330,6 +358,7 @@ export default function Home() {
 
     addLog(`❌ Administrador rechazó la solicitud de cambio de ${member}.`);
     alert(`Solicitud rechazada. Se ha notificado a ${member}.`);
+    sendPushNotification(member, "Solicitud Rechazada", `El Administrador ha denegado tu solicitud de reemplazo para este sábado.`);
   };
 
   const handleResetPassword = async (userName: string) => {
@@ -360,6 +389,7 @@ export default function Home() {
 
     addLog(`❌ Administrador denegó la solicitud futura de ${req.user} para el ${req.date}.`);
     alert(`Solicitud denegada. Se ha notificado a ${req.user}.`);
+    sendPushNotification(req.user, "Solicitud Futura Rechazada", `El Administrador ha denegado tu solicitud de cambio para el ${req.date}.`);
   };
 
   if (loading) {
@@ -473,6 +503,32 @@ function UserView({ currentDate, schedule, userName, status, notifications, pend
     targetShifts: { date: string, shift: string }[] | null;
   } | null>(null);
 
+  const handleEnablePush = async () => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      alert("Tu dispositivo o navegador no soporta notificaciones push. En iPhone, recuerda 'Agregar a la Pantalla de Inicio' primero.");
+      return;
+    }
+    const permission = await Notification.requestPermission();
+    if (permission === 'granted') {
+      try {
+        const registration = await navigator.serviceWorker.register('/sw.js');
+        const subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(PUBLIC_VAPID_KEY)
+        });
+        await setDoc(doc(db, "users", userName), { 
+          pushSubscription: JSON.parse(JSON.stringify(subscription))
+        }, { merge: true });
+        alert("¡Notificaciones Push activadas con éxito! Ahora recibirás alertas como en WhatsApp.");
+      } catch (err) {
+        console.error(err);
+        alert("Error al suscribirse a las notificaciones.");
+      }
+    } else {
+      alert("Permiso de notificaciones denegado. Debes permitirlas desde la configuración de tu celular.");
+    }
+  };
+
   return (
     <div>
       {swapModalState && (
@@ -542,9 +598,14 @@ function UserView({ currentDate, schedule, userName, status, notifications, pend
           {formatDate(currentDate)}
         </h4>
         <h3 style={{ textShadow: '0 2px 4px rgba(255,255,255,0.5)' }}>Hola, {userName}</h3>
-        <button onClick={onChangePassword} style={{ marginTop: '10px', background: 'none', border: 'none', color: 'var(--primary-red)', textDecoration: 'underline', cursor: 'pointer', fontWeight: 'bold' }}>
-          Cambiar mi clave
-        </button>
+        <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', marginTop: '10px' }}>
+          <button onClick={onChangePassword} style={{ background: 'none', border: 'none', color: 'var(--primary-red)', textDecoration: 'underline', cursor: 'pointer', fontWeight: 'bold' }}>
+            Cambiar clave
+          </button>
+          <button onClick={handleEnablePush} style={{ background: 'none', border: 'none', color: '#4caf50', textDecoration: 'underline', cursor: 'pointer', fontWeight: 'bold' }}>
+            Activar Alertas
+          </button>
+        </div>
       </div>
 
       {pendingSwaps.map(swap => (
