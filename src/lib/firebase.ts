@@ -1,5 +1,6 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
+import { getStorage } from "firebase/storage";
 // import { getAnalytics } from "firebase/analytics";
 
 const firebaseConfig = {
@@ -15,8 +16,9 @@ const firebaseConfig = {
 // Initialize Firebase (Evita inicializar múltiples veces en Next.js)
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-// Inicializamos Firestore
+// Inicializamos Firestore y Storage
 export const db = getFirestore(app);
+export const storage = getStorage(app);
 
 // Nota: Analytics solo funciona en el cliente (navegador), lo omitimos temporalmente
 // export const analytics = typeof window !== 'undefined' ? getAnalytics(app) : null;

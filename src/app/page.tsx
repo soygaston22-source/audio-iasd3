@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { getScheduleForDate, TEAM, getAllFutureShiftsForUser, formatDate, ApprovedSwap } from "@/lib/rotation";
 import { db } from "@/lib/firebase";
@@ -862,6 +862,9 @@ interface ChatMessage {
   chatId: string;
   sender: string;
   text: string;
+  fileUrl?: string;
+  fileName?: string;
+  fileType?: string;
   timestamp: any;
 }
 
@@ -869,6 +872,8 @@ function ChatView({ currentUser, onClose }: { currentUser: UserState, onClose: (
   const [selectedChat, setSelectedChat] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!selectedChat) return;
@@ -889,6 +894,9 @@ function ChatView({ currentUser, onClose }: { currentUser: UserState, onClose: (
             chatId: data.chatId,
             sender: data.sender,
             text: data.text,
+            fileUrl: data.fileUrl,
+            fileName: data.fileName,
+            fileType: data.fileType,
             timestamp: data.timestamp
           });
         }
@@ -924,6 +932,55 @@ function ChatView({ currentUser, onClose }: { currentUser: UserState, onClose: (
     if (selectedChat !== "group") {
       // Notificar por push al usuario
       sendPushNotification(selectedChat, `Nuevo mensaje de ${currentUser.name}`, textToSend);
+    }
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedChat) return;
+
+    const chatId = selectedChat === "group" 
+      ? "group" 
+      : [currentUser.name, selectedChat].sort().join("_");
+
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('upload_preset', 'chat_iasd');
+
+      const res = await fetch(`https://api.cloudinary.com/v1_1/df2phyuoo/auto/upload`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error?.message || "Error al subir a Cloudinary");
+      }
+
+      const downloadURL = data.secure_url;
+      
+      await addDoc(collection(db, "messages"), {
+        chatId,
+        sender: currentUser.name,
+        text: "",
+        fileUrl: downloadURL,
+        fileName: file.name,
+        fileType: file.type || data.resource_type,
+        timestamp: serverTimestamp()
+      });
+
+      if (selectedChat !== "group") {
+        sendPushNotification(selectedChat, `Archivo de ${currentUser.name}`, `Ha enviado un archivo adjunto.`);
+      }
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    } catch (err) {
+      console.error(err);
+      alert("Error al subir el archivo. " + (err as Error).message);
+      setIsUploading(false);
     }
   };
 
@@ -972,20 +1029,50 @@ function ChatView({ currentUser, onClose }: { currentUser: UserState, onClose: (
                       {msg.sender}
                     </div>
                   )}
-                  {msg.text}
+                  {msg.text && <div style={{ wordBreak: 'break-word' }}>{msg.text}</div>}
+                  {msg.fileUrl && (
+                    <div style={{ marginTop: msg.text ? '8px' : '0' }}>
+                      {msg.fileType?.startsWith('image/') ? (
+                        <img src={msg.fileUrl} alt={msg.fileName} style={{ maxWidth: '100%', borderRadius: '8px', maxHeight: '250px', objectFit: 'cover' }} />
+                      ) : msg.fileType?.startsWith('video/') ? (
+                        <video src={msg.fileUrl} controls style={{ maxWidth: '100%', borderRadius: '8px', maxHeight: '250px' }} />
+                      ) : msg.fileType?.startsWith('audio/') ? (
+                        <audio src={msg.fileUrl} controls style={{ maxWidth: '100%', width: '220px' }} />
+                      ) : (
+                        <a href={msg.fileUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', background: 'rgba(0,0,0,0.1)', borderRadius: '8px', color: 'inherit', textDecoration: 'none' }}>
+                          📄 {msg.fileName}
+                        </a>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
           <form onSubmit={handleSend} className="chat-input-area">
             <input 
+              type="file" 
+              ref={fileInputRef} 
+              style={{ display: 'none' }} 
+              onChange={handleFileSelect} 
+            />
+            <button 
+              type="button" 
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading}
+              style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', padding: '0 8px', opacity: isUploading ? 0.5 : 1 }}
+            >
+              📎
+            </button>
+            <input 
               type="text" 
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
-              placeholder="Escribe un mensaje..."
+              placeholder={isUploading ? "Subiendo archivo..." : "Escribe un mensaje..."}
+              disabled={isUploading}
               style={{ flex: 1, padding: '12px', borderRadius: '20px', border: '1px solid var(--glass-border)', background: 'var(--glass-bg)', color: 'var(--glass-text)', fontSize: '1rem' }}
             />
-            <button type="submit" style={{ background: '#4caf50', color: 'white', border: 'none', borderRadius: '20px', padding: '0 20px', fontWeight: 'bold', cursor: 'pointer' }}>
+            <button type="submit" disabled={isUploading || !newMessage.trim()} style={{ background: '#4caf50', color: 'white', border: 'none', borderRadius: '20px', padding: '0 20px', fontWeight: 'bold', cursor: 'pointer', opacity: (isUploading || !newMessage.trim()) ? 0.5 : 1 }}>
               Enviar
             </button>
           </form>
