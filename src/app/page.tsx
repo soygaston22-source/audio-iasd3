@@ -527,7 +527,9 @@ function UserView({ currentDate, schedule, userName, status, notifications, pend
     if (permission === 'granted') {
       try {
         const registration = await navigator.serviceWorker.register('/sw.js');
-        const subscription = await registration.pushManager.subscribe({
+        // Esperar a que el service worker esté "listo" y activo antes de suscribirse
+        const readyRegistration = await navigator.serviceWorker.ready;
+        const subscription = await readyRegistration.pushManager.subscribe({
           userVisibleOnly: true,
           applicationServerKey: urlBase64ToUint8Array(PUBLIC_VAPID_KEY)
         });
