@@ -67,6 +67,7 @@ const sendPushNotification = async (targetUser: string, title: string, body: str
 export default function Home() {
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<UserState | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
   
   // App state
   const [currentDate] = useState(new Date());
@@ -440,12 +441,22 @@ export default function Home() {
           <Image src="/logo.jpg" alt="Logo" width={40} height={40} style={{ borderRadius: '8px' }} />
           <h2 style={{ margin: 0, fontSize: '1.2rem' }}>Audio IASD</h2>
         </div>
-        <button 
-          onClick={() => setCurrentUser(null)}
-          style={{ background: 'none', border: 'none', color: 'white', textDecoration: 'underline', cursor: 'pointer', fontSize: '1rem' }}
-        >
-          Salir
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          {currentUser && (
+            <button 
+              onClick={() => setChatOpen(true)}
+              style={{ background: '#4caf50', border: 'none', color: 'white', borderRadius: '50%', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: '1.2rem', boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}
+            >
+              💬
+            </button>
+          )}
+          <button 
+            onClick={() => setCurrentUser(null)}
+            style={{ background: 'none', border: 'none', color: 'white', textDecoration: 'underline', cursor: 'pointer', fontSize: '1rem' }}
+          >
+            Salir
+          </button>
+        </div>
       </header>
 
       <main className="content">
@@ -484,6 +495,10 @@ export default function Home() {
           />
         )}
       </main>
+
+      {chatOpen && currentUser && (
+        <ChatView currentUser={currentUser} onClose={() => setChatOpen(false)} />
+      )}
     </>
   );
 }
@@ -520,9 +535,9 @@ function UserView({ currentDate, schedule, userName, status, notifications, pend
           pushSubscription: JSON.parse(JSON.stringify(subscription))
         }, { merge: true });
         alert("¡Notificaciones Push activadas con éxito! Ahora recibirás alertas como en WhatsApp.");
-      } catch (err) {
+      } catch (err: any) {
         console.error(err);
-        alert("Error al suscribirse a las notificaciones.");
+        alert("Error al suscribirse: " + err.message);
       }
     } else {
       alert("Permiso de notificaciones denegado. Debes permitirlas desde la configuración de tu celular.");
@@ -838,6 +853,144 @@ function AdminView({ schedule, statuses, activityLog, resetRequests, futureReque
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+interface ChatMessage {
+  id: string;
+  chatId: string;
+  sender: string;
+  text: string;
+  timestamp: any;
+}
+
+function ChatView({ currentUser, onClose }: { currentUser: UserState, onClose: () => void }) {
+  const [selectedChat, setSelectedChat] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [newMessage, setNewMessage] = useState("");
+
+  useEffect(() => {
+    if (!selectedChat) return;
+
+    const chatId = selectedChat === "group" 
+      ? "group" 
+      : [currentUser.name, selectedChat].sort().join("_");
+
+    const q = query(collection(db, "messages"), orderBy("timestamp", "asc"));
+    
+    const unsub = onSnapshot(q, (snap) => {
+      const msgs: ChatMessage[] = [];
+      snap.forEach(docSnap => {
+        const data = docSnap.data();
+        if (data.chatId === chatId) {
+          msgs.push({
+            id: docSnap.id,
+            chatId: data.chatId,
+            sender: data.sender,
+            text: data.text,
+            timestamp: data.timestamp
+          });
+        }
+      });
+      setMessages(msgs);
+      setTimeout(() => {
+        const chatContainer = document.getElementById("chat-messages-container");
+        if (chatContainer) chatContainer.scrollTop = chatContainer.scrollHeight;
+      }, 50);
+    });
+
+    return () => unsub();
+  }, [selectedChat, currentUser.name]);
+
+  const handleSend = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMessage.trim() || !selectedChat) return;
+
+    const chatId = selectedChat === "group" 
+      ? "group" 
+      : [currentUser.name, selectedChat].sort().join("_");
+
+    const textToSend = newMessage.trim();
+    setNewMessage("");
+
+    await addDoc(collection(db, "messages"), {
+      chatId,
+      sender: currentUser.name,
+      text: textToSend,
+      timestamp: serverTimestamp()
+    });
+
+    if (selectedChat !== "group") {
+      // Notificar por push al usuario
+      sendPushNotification(selectedChat, `Nuevo mensaje de ${currentUser.name}`, textToSend);
+    }
+  };
+
+  return (
+    <div className="chat-modal">
+      <div className="chat-header">
+        <button onClick={() => selectedChat ? setSelectedChat(null) : onClose()} style={{ background: 'none', border: 'none', color: 'white', fontSize: '1.2rem', cursor: 'pointer', marginRight: '16px' }}>
+          {selectedChat ? '← Atrás' : '✕ Cerrar'}
+        </button>
+        <h3 style={{ margin: 0 }}>{selectedChat === "group" ? "Chat Grupal" : selectedChat || "Mensajes"}</h3>
+      </div>
+
+      {!selectedChat ? (
+        <div style={{ padding: '16px', flex: 1, overflowY: 'auto' }}>
+          <button 
+            className="btn btn-primary" 
+            style={{ marginBottom: '16px', background: 'linear-gradient(135deg, #1976d2, #115293)' }}
+            onClick={() => setSelectedChat("group")}
+          >
+            👥 Chat Grupal (Equipo IASD)
+          </button>
+          
+          <h4 style={{ color: 'var(--text-muted)', marginBottom: '8px' }}>Chats Directos</h4>
+          {TEAM.filter(m => m !== currentUser.name).map(member => (
+            <div 
+              key={member}
+              onClick={() => setSelectedChat(member)}
+              style={{ padding: '16px', borderBottom: '1px solid var(--glass-border)', display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }}
+            >
+              <div style={{ width: '40px', height: '40px', borderRadius: '20px', backgroundColor: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem' }}>
+                👤
+              </div>
+              <strong style={{ fontSize: '1.1rem', color: 'var(--glass-text)' }}>{member}</strong>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <>
+          <div id="chat-messages-container" className="chat-messages">
+            {messages.map(msg => {
+              const isMine = msg.sender === currentUser.name;
+              return (
+                <div key={msg.id} className={`chat-bubble ${isMine ? 'chat-bubble-mine' : 'chat-bubble-other'}`}>
+                  {!isMine && selectedChat === "group" && (
+                    <div style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#1976d2', marginBottom: '4px' }}>
+                      {msg.sender}
+                    </div>
+                  )}
+                  {msg.text}
+                </div>
+              );
+            })}
+          </div>
+          <form onSubmit={handleSend} className="chat-input-area">
+            <input 
+              type="text" 
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              placeholder="Escribe un mensaje..."
+              style={{ flex: 1, padding: '12px', borderRadius: '20px', border: '1px solid var(--glass-border)', background: 'var(--glass-bg)', color: 'var(--glass-text)', fontSize: '1rem' }}
+            />
+            <button type="submit" style={{ background: '#4caf50', color: 'white', border: 'none', borderRadius: '20px', padding: '0 20px', fontWeight: 'bold', cursor: 'pointer' }}>
+              Enviar
+            </button>
+          </form>
+        </>
+      )}
     </div>
   );
 }
