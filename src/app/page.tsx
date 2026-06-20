@@ -542,7 +542,32 @@ function UserView({ currentDate, schedule, userName, status, notifications, pend
         alert("Error al suscribirse: " + err.message);
       }
     } else {
-      alert("Permiso de notificaciones denegado. Debes permitirlas desde la configuración de tu celular.");
+      alert("Permiso de notificaciones denegado por el usuario.");
+    }
+  };
+
+  const handleTestPush = async () => {
+    try {
+      const docRef = doc(db, "users", userName);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists() && docSnap.data().pushSubscription) {
+        const sub = docSnap.data().pushSubscription;
+        const res = await fetch('/api/push', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: userName, title: "¡Prueba Exitosa!", body: "Si ves esto, las notificaciones funcionan perfecto." })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          alert(`Error del servidor al enviar la notificación: ${data.error}`);
+        } else {
+          // Silencioso si fue exitoso, la notificación hablará por sí misma
+        }
+      } else {
+        alert("Primero debes tocar 'Activar Alertas' en este dispositivo.");
+      }
+    } catch (err: any) {
+      alert("Error de conexión al servidor: " + err.message);
     }
   };
 
@@ -621,6 +646,9 @@ function UserView({ currentDate, schedule, userName, status, notifications, pend
           </button>
           <button onClick={handleEnablePush} style={{ background: 'none', border: 'none', color: '#4caf50', textDecoration: 'underline', cursor: 'pointer', fontWeight: 'bold' }}>
             Activar Alertas
+          </button>
+          <button onClick={handleTestPush} style={{ background: 'none', border: 'none', color: '#1976d2', textDecoration: 'underline', cursor: 'pointer', fontWeight: 'bold' }}>
+            Probar Alerta
           </button>
         </div>
       </div>
