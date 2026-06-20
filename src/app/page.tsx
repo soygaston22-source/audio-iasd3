@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { getScheduleForDate, TEAM, getAllFutureShiftsForUser, formatDate, ApprovedSwap } from "@/lib/rotation";
 import { db } from "@/lib/firebase";
-import { collection, doc, onSnapshot, setDoc, query, orderBy, limit, addDoc, serverTimestamp, getDoc, deleteDoc } from "firebase/firestore";
+import { collection, doc, onSnapshot, setDoc, query, orderBy, limit, addDoc, serverTimestamp, getDoc, deleteDoc, increment } from "firebase/firestore";
 
 type Role = "ADMIN" | "USER" | null;
 type Status = "PENDING" | "CONFIRMED" | "ISSUE" | "CHANGE_REQUESTED";
@@ -93,6 +93,7 @@ export default function Home() {
   const [userStatuses, setUserStatuses] = useState<Record<string, Status>>({});
   const [userPasswords, setUserPasswords] = useState<Record<string, string>>({});
   const [userNotifications, setUserNotifications] = useState<Record<string, string[]>>({});
+  const [userUnreadCounts, setUserUnreadCounts] = useState<Record<string, Record<string, number>>>({});
   const [activityLog, setActivityLog] = useState<ActivityEntry[]>([]);
   const [resetRequests, setResetRequests] = useState<string[]>([]);
   const [futureRequests, setFutureRequests] = useState<FutureChangeRequest[]>([]);
@@ -147,17 +148,20 @@ export default function Home() {
       const statuses: Record<string, Status> = {};
       const passwords: Record<string, string> = {};
       const notifications: Record<string, string[]> = {};
+      const unreads: Record<string, Record<string, number>> = {};
       
       snap.forEach(docSnap => {
         const data = docSnap.data();
         statuses[docSnap.id] = data.status || "PENDING";
         passwords[docSnap.id] = data.password || DEFAULT_USER_PASSWORD;
         notifications[docSnap.id] = data.notifications || [];
+        unreads[docSnap.id] = data.unreadCounts || {};
       });
       
       setUserStatuses(statuses);
       setUserPasswords(passwords);
       setUserNotifications(notifications);
+      setUserUnreadCounts(unreads);
     });
 
     // 3. Listen to activity logs
@@ -481,6 +485,9 @@ export default function Home() {
 
   const [showYoutubePlayer, setShowYoutubePlayer] = useState(false);
 
+  const currentUserUnreads = currentUser ? (userUnreadCounts[currentUser.name] || {}) : {};
+  const totalUnreadCount = Object.values(currentUserUnreads).reduce((a, b) => a + b, 0);
+
   if (loading) {
     return (
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'white' }}>
@@ -541,9 +548,14 @@ export default function Home() {
           {currentUser && (
             <button 
               onClick={() => setChatOpen(true)}
-              style={{ background: '#4caf50', border: 'none', color: 'white', borderRadius: '50%', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: '1.2rem', boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}
+              style={{ background: 'none', border: 'none', fontSize: '1.8rem', cursor: 'pointer', marginRight: '16px', position: 'relative' }}
             >
               💬
+              {totalUnreadCount > 0 && (
+                <span style={{ position: 'absolute', top: '-4px', right: '-4px', background: 'red', color: 'white', borderRadius: '12px', padding: '2px 6px', fontSize: '0.8rem', fontWeight: 'bold' }}>
+                  {totalUnreadCount}
+                </span>
+              )}
             </button>
           )}
           <button 
@@ -621,7 +633,7 @@ export default function Home() {
       )}
 
       {chatOpen && currentUser && (
-        <ChatView currentUser={currentUser} onClose={() => setChatOpen(false)} />
+        <ChatView currentUser={currentUser} unreadCounts={currentUserUnreads} onClose={() => setChatOpen(false)} />
       )}
     </>
   );
@@ -1258,7 +1270,7 @@ interface ChatMessage {
   timestamp: any;
 }
 
-function ChatView({ currentUser, onClose }: { currentUser: UserState, onClose: () => void }) {
+function ChatView({ currentUser, unreadCounts, onClose }: { currentUser: UserState, unreadCounts: Record<string, number>, onClose: () => void }) {
   const [selectedChat, setSelectedChat] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState("");
@@ -1297,8 +1309,18 @@ function ChatView({ currentUser, onClose }: { currentUser: UserState, onClose: (
       setTimeout(() => {
         const chatContainer = document.getElementById("chat-messages-container");
         if (chatContainer) chatContainer.scrollTop = chatContainer.scrollHeight;
+        
+        // Clear unread count when reading
+        setDoc(doc(db, "users", currentUser.name), {
+          [`unreadCounts.${chatId}`]: 0
+        }, { merge: true });
       }, 50);
     });
+
+    // Initial clear when opening
+    setDoc(doc(db, "users", currentUser.name), {
+      [`unreadCounts.${chatId}`]: 0
+    }, { merge: true });
 
     return () => unsub();
   }, [selectedChat, currentUser.name]);
@@ -1321,7 +1343,19 @@ function ChatView({ currentUser, onClose }: { currentUser: UserState, onClose: (
       timestamp: serverTimestamp()
     });
 
-    if (selectedChat !== "group") {
+    if (selectedChat === "group") {
+      TEAM.forEach(member => {
+        if (member !== currentUser.name) {
+          setDoc(doc(db, "users", member), { 
+            [`unreadCounts.group`]: increment(1) 
+          }, { merge: true });
+        }
+      });
+    } else {
+      setDoc(doc(db, "users", selectedChat), { 
+        [`unreadCounts.${chatId}`]: increment(1) 
+      }, { merge: true });
+      
       // Notificar por push al usuario
       sendPushNotification(selectedChat, `Nuevo mensaje de ${currentUser.name}`, textToSend);
     }
@@ -1377,7 +1411,19 @@ function ChatView({ currentUser, onClose }: { currentUser: UserState, onClose: (
         timestamp: serverTimestamp()
       });
 
-      if (selectedChat !== "group") {
+      if (selectedChat === "group") {
+        TEAM.forEach(member => {
+          if (member !== currentUser.name) {
+            setDoc(doc(db, "users", member), { 
+              [`unreadCounts.group`]: increment(1) 
+            }, { merge: true });
+          }
+        });
+      } else {
+        setDoc(doc(db, "users", selectedChat), { 
+          [`unreadCounts.${chatId}`]: increment(1) 
+        }, { merge: true });
+
         sendPushNotification(selectedChat, `Archivo de ${currentUser.name}`, `Ha enviado un archivo adjunto.`);
       }
       setIsUploading(false);
@@ -1402,25 +1448,41 @@ function ChatView({ currentUser, onClose }: { currentUser: UserState, onClose: (
         <div style={{ padding: '16px', flex: 1, overflowY: 'auto' }}>
           <button 
             className="btn btn-primary" 
-            style={{ marginBottom: '16px', background: 'linear-gradient(135deg, #1976d2, #115293)' }}
+            style={{ marginBottom: '16px', background: 'linear-gradient(135deg, #1976d2, #115293)', position: 'relative' }}
             onClick={() => setSelectedChat("group")}
           >
             👥 Chat Grupal (Equipo IASD)
+            {(unreadCounts["group"] || 0) > 0 && (
+              <span style={{ position: 'absolute', top: '-6px', right: '-6px', background: 'red', color: 'white', borderRadius: '12px', padding: '2px 8px', fontSize: '0.85rem', fontWeight: 'bold' }}>
+                {unreadCounts["group"]}
+              </span>
+            )}
           </button>
           
           <h4 style={{ color: 'var(--text-muted)', marginBottom: '8px' }}>Chats Directos</h4>
-          {TEAM.filter(m => m !== currentUser.name).map(member => (
-            <div 
-              key={member}
-              onClick={() => setSelectedChat(member)}
-              style={{ padding: '16px', borderBottom: '1px solid var(--glass-border)', display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }}
-            >
-              <div style={{ width: '40px', height: '40px', borderRadius: '20px', backgroundColor: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem' }}>
-                👤
+          {TEAM.filter(m => m !== currentUser.name).map(member => {
+            const chatId = [currentUser.name, member].sort().join("_");
+            const unread = unreadCounts[chatId] || 0;
+            return (
+              <div 
+                key={member}
+                onClick={() => setSelectedChat(member)}
+                style={{ padding: '16px', borderBottom: '1px solid var(--glass-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{ width: '40px', height: '40px', borderRadius: '20px', backgroundColor: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem' }}>
+                    👤
+                  </div>
+                  <strong style={{ fontSize: '1.1rem', color: 'var(--glass-text)' }}>{member}</strong>
+                </div>
+                {unread > 0 && (
+                  <div style={{ background: 'red', color: 'white', borderRadius: '12px', padding: '2px 8px', fontSize: '0.85rem', fontWeight: 'bold' }}>
+                    {unread}
+                  </div>
+                )}
               </div>
-              <strong style={{ fontSize: '1.1rem', color: 'var(--glass-text)' }}>{member}</strong>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <>
