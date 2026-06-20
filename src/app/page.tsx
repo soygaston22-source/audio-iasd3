@@ -100,6 +100,7 @@ export default function Home() {
   const [approvedSwaps, setApprovedSwaps] = useState<ApprovedSwap[]>([]);
   const [seedOffset, setSeedOffset] = useState<number>(0);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [youtubeLiveUrl, setYoutubeLiveUrl] = useState<string>("");
 
   const addLog = async (action: string) => {
     try {
@@ -124,6 +125,7 @@ export default function Home() {
         if (data.pendingSwaps) setPendingSwaps(data.pendingSwaps);
         if (data.approvedSwaps) setApprovedSwaps(data.approvedSwaps);
         if (data.seedOffset !== undefined) setSeedOffset(data.seedOffset);
+        if (data.youtubeLiveUrl !== undefined) setYoutubeLiveUrl(data.youtubeLiveUrl);
       } else {
         // Init global state if not exists
         const sched = getScheduleForDate(new Date(), [], 0);
@@ -133,7 +135,8 @@ export default function Home() {
           futureRequests: [],
           pendingSwaps: [],
           approvedSwaps: [],
-          seedOffset: 0
+          seedOffset: 0,
+          youtubeLiveUrl: ""
         });
         setSchedule(sched);
       }
@@ -471,6 +474,13 @@ export default function Home() {
     }
   };
 
+  const handleUpdateYoutubeLive = async (url: string) => {
+    await setDoc(doc(db, "app_state", "global"), { youtubeLiveUrl: url }, { merge: true });
+    alert("URL de YouTube actualizada exitosamente.");
+  };
+
+  const [showYoutubePlayer, setShowYoutubePlayer] = useState(false);
+
   if (loading) {
     return (
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'white' }}>
@@ -520,6 +530,14 @@ export default function Home() {
           <h2 style={{ margin: 0, fontSize: '1.2rem' }}>Audio IASD</h2>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          {youtubeLiveUrl && (
+            <button 
+              onClick={() => setShowYoutubePlayer(true)}
+              style={{ background: '#ff0000', border: 'none', color: 'white', padding: '6px 12px', borderRadius: '16px', fontWeight: 'bold', cursor: 'pointer', marginRight: '16px', boxShadow: '0 2px 8px rgba(255,0,0,0.4)', fontSize: '0.9rem' }}
+            >
+              📺 En Vivo
+            </button>
+          )}
           {currentUser && (
             <button 
               onClick={() => setChatOpen(true)}
@@ -575,9 +593,32 @@ export default function Home() {
             onRejectFutureRequest={handleRejectFutureRequest}
             onRandomReassign={handleRandomReassign}
             onDeleteAnnouncement={handleDeleteAnnouncement}
+            youtubeLiveUrl={youtubeLiveUrl}
+            onUpdateYoutubeLive={handleUpdateYoutubeLive}
           />
         )}
       </main>
+
+      {showYoutubePlayer && youtubeLiveUrl && (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.8)', zIndex: 3000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: '100%', maxWidth: '800px', background: 'var(--glass-bg)', borderRadius: '16px', overflow: 'hidden' }}>
+            <div style={{ padding: '16px', background: 'var(--primary-red)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'white' }}>
+              <h3 style={{ margin: 0 }}>📺 Transmisión en Vivo</h3>
+              <button onClick={() => setShowYoutubePlayer(false)} style={{ background: 'none', border: 'none', color: 'white', fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
+            </div>
+            <div style={{ padding: '16px' }}>
+              <iframe 
+                src={youtubeLiveUrl.startsWith('UC') ? `https://www.youtube.com/embed/live_stream?channel=${youtubeLiveUrl}` : `https://www.youtube.com/embed/${youtubeLiveUrl.split('v=')[1]?.split('&')[0] || youtubeLiveUrl.split('youtu.be/')[1]?.split('?')[0] || youtubeLiveUrl}`}
+                width="100%" 
+                height="400px" 
+                style={{ border: 'none', borderRadius: '8px' }} 
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                allowFullScreen
+              ></iframe>
+            </div>
+          </div>
+        </div>
+      )}
 
       {chatOpen && currentUser && (
         <ChatView currentUser={currentUser} onClose={() => setChatOpen(false)} />
@@ -885,8 +926,8 @@ function UserView({ currentDate, schedule, userName, status, notifications, pend
   );
 }
 
-function AdminView({ schedule, statuses, activityLog, resetRequests, futureRequests, approvedSwaps, announcements, onChangeAssignment, onRejectAssignment, onResetPassword, onDismissFutureRequest, onRejectFutureRequest, onRandomReassign, onDeleteAnnouncement }: { 
-  schedule: any, statuses: Record<string, Status>, activityLog: ActivityEntry[], resetRequests: string[], futureRequests: FutureChangeRequest[], approvedSwaps: ApprovedSwap[], announcements: Announcement[], onChangeAssignment: (member: string) => void, onRejectAssignment: (member: string) => void, onResetPassword: (member: string) => void, onDismissFutureRequest: (id: string) => void, onRejectFutureRequest: (req: FutureChangeRequest) => void, onRandomReassign: () => void, onDeleteAnnouncement: (id: string) => void 
+function AdminView({ schedule, statuses, activityLog, resetRequests, futureRequests, approvedSwaps, announcements, onChangeAssignment, onRejectAssignment, onResetPassword, onDismissFutureRequest, onRejectFutureRequest, onRandomReassign, onDeleteAnnouncement, youtubeLiveUrl, onUpdateYoutubeLive }: { 
+  schedule: any, statuses: Record<string, Status>, activityLog: ActivityEntry[], resetRequests: string[], futureRequests: FutureChangeRequest[], approvedSwaps: ApprovedSwap[], announcements: Announcement[], onChangeAssignment: (member: string) => void, onRejectAssignment: (member: string) => void, onResetPassword: (member: string) => void, onDismissFutureRequest: (id: string) => void, onRejectFutureRequest: (req: FutureChangeRequest) => void, onRandomReassign: () => void, onDeleteAnnouncement: (id: string) => void, youtubeLiveUrl?: string, onUpdateYoutubeLive?: (url: string) => void
 }) {
   const [newsTitle, setNewsTitle] = useState("");
   const [newsText, setNewsText] = useState("");
@@ -1163,6 +1204,32 @@ alert("Error al publicar: " + err.message);
         )}
       </div>
 
+      <div style={{ marginTop: '2rem', padding: '20px', background: 'rgba(255, 0, 0, 0.1)', border: '1px solid rgba(255, 0, 0, 0.3)', borderRadius: '12px' }}>
+        <h3 style={{ color: '#ff0000', marginBottom: '16px' }}>📺 Configuración de YouTube Live</h3>
+        <p style={{ color: 'var(--glass-text)', marginBottom: '16px', fontSize: '0.9rem' }}>
+          Para que los usuarios puedan monitorear el Vivo, pega el <strong>ID del Canal</strong> (ej: <code>UCxyz123...</code>) o el link del video en vivo.
+        </p>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <input 
+            type="text" 
+            placeholder="URL o ID de YouTube..." 
+            defaultValue={youtubeLiveUrl || ""}
+            id="youtube-live-input"
+            style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid var(--glass-border)', background: 'rgba(0,0,0,0.05)', color: 'var(--glass-text)', fontSize: '1rem' }}
+          />
+          <button 
+            onClick={() => {
+              const el = document.getElementById("youtube-live-input") as HTMLInputElement;
+              if (el && onUpdateYoutubeLive) onUpdateYoutubeLive(el.value);
+            }}
+            className="btn btn-primary"
+            style={{ width: 'auto', padding: '0 20px', background: '#ff0000' }}
+          >
+            Guardar
+          </button>
+        </div>
+      </div>
+
       <div style={{ marginTop: '2rem', padding: '20px', background: 'rgba(211,47,47,0.1)', border: '1px solid rgba(211,47,47,0.3)', borderRadius: '12px' }}>
         <h3 style={{ color: '#d32f2f', marginBottom: '16px' }}>⚙️ Zona de Peligro</h3>
         <p style={{ color: 'var(--glass-text)', marginBottom: '16px', fontSize: '0.9rem' }}>
@@ -1196,6 +1263,8 @@ function ChatView({ currentUser, onClose }: { currentUser: UserState, onClose: (
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [isUploading, setIsUploading] = useState(false);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editingMessageText, setEditingMessageText] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -1256,6 +1325,19 @@ function ChatView({ currentUser, onClose }: { currentUser: UserState, onClose: (
       // Notificar por push al usuario
       sendPushNotification(selectedChat, `Nuevo mensaje de ${currentUser.name}`, textToSend);
     }
+  };
+
+  const handleDeleteMessage = async (msgId: string) => {
+    if (confirm("¿Estás seguro de que deseas eliminar este mensaje para todos?")) {
+      await deleteDoc(doc(db, "messages", msgId));
+    }
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingMessageId) return;
+    await setDoc(doc(db, "messages", editingMessageId), { text: editingMessageText }, { merge: true });
+    setEditingMessageId(null);
+    setEditingMessageText("");
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1352,29 +1434,56 @@ function ChatView({ currentUser, onClose }: { currentUser: UserState, onClose: (
                       {msg.sender}
                     </div>
                   )}
-                  {msg.text && <div style={{ wordBreak: 'break-word' }}>{msg.text}</div>}
-                  {msg.fileUrl && (
-                    <div style={{ marginTop: msg.text ? '8px' : '0', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                      {msg.fileType?.startsWith('image/') ? (
-                        <img src={msg.fileUrl} alt={msg.fileName} style={{ maxWidth: '100%', borderRadius: '8px', maxHeight: '250px', objectFit: 'cover' }} />
-                      ) : msg.fileType?.startsWith('video/') ? (
-                        <video src={msg.fileUrl} controls style={{ maxWidth: '100%', borderRadius: '8px', maxHeight: '250px' }} />
-                      ) : msg.fileType?.startsWith('audio/') ? (
-                        <audio src={msg.fileUrl} controls style={{ maxWidth: '100%', width: '220px' }} />
-                      ) : (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', background: 'rgba(0,0,0,0.1)', borderRadius: '8px', color: 'inherit' }}>
-                          📄 {msg.fileName}
+                  
+                  {editingMessageId === msg.id ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', minWidth: '200px' }}>
+                      <textarea 
+                        value={editingMessageText} 
+                        onChange={(e) => setEditingMessageText(e.target.value)} 
+                        style={{ width: '100%', padding: '8px', borderRadius: '8px', border: 'none', fontSize: '1rem', color: 'black' }} 
+                      />
+                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                        <button onClick={() => setEditingMessageId(null)} style={{ background: 'none', border: '1px solid white', color: 'white', padding: '4px 12px', borderRadius: '8px', cursor: 'pointer' }}>Cancelar</button>
+                        <button onClick={handleSaveEdit} style={{ background: 'white', border: 'none', color: '#2e7d32', fontWeight: 'bold', padding: '4px 12px', borderRadius: '8px', cursor: 'pointer' }}>Guardar</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {msg.text && <div style={{ wordBreak: 'break-word' }}>{msg.text}</div>}
+                      
+                      {msg.fileUrl && (
+                        <div style={{ marginTop: msg.text ? '8px' : '0', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          {msg.fileType?.startsWith('image/') ? (
+                            <img src={msg.fileUrl} alt={msg.fileName} style={{ maxWidth: '100%', borderRadius: '8px', maxHeight: '250px', objectFit: 'cover' }} />
+                          ) : msg.fileType?.startsWith('video/') ? (
+                            <video src={msg.fileUrl} controls style={{ maxWidth: '100%', borderRadius: '8px', maxHeight: '250px' }} />
+                          ) : msg.fileType?.startsWith('audio/') ? (
+                            <audio src={msg.fileUrl} controls style={{ maxWidth: '100%', width: '220px' }} />
+                          ) : (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', background: 'rgba(0,0,0,0.1)', borderRadius: '8px', color: 'inherit' }}>
+                              📄 {msg.fileName}
+                            </div>
+                          )}
+                          <a 
+                            href={msg.fileUrl} 
+                            target="_blank" 
+                            rel="noopener noreferrer" 
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', color: isMine ? 'white' : '#1976d2', textDecoration: 'none', alignSelf: 'flex-start', padding: '6px 12px', background: isMine ? 'rgba(0,0,0,0.2)' : 'rgba(25, 118, 210, 0.1)', borderRadius: '6px', fontWeight: 'bold' }}
+                          >
+                            ⬇️ Descargar {msg.fileType?.startsWith('image/') ? 'Imagen' : msg.fileType?.startsWith('video/') ? 'Video' : 'Archivo'}
+                          </a>
                         </div>
                       )}
-                      <a 
-                        href={msg.fileUrl} 
-                        target="_blank" 
-                        rel="noopener noreferrer" 
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', color: isMine ? 'white' : '#1976d2', textDecoration: 'none', alignSelf: 'flex-start', padding: '6px 12px', background: isMine ? 'rgba(0,0,0,0.2)' : 'rgba(25, 118, 210, 0.1)', borderRadius: '6px', fontWeight: 'bold' }}
-                      >
-                        ⬇️ Descargar {msg.fileType?.startsWith('image/') ? 'Imagen' : msg.fileType?.startsWith('video/') ? 'Video' : 'Archivo'}
-                      </a>
-                    </div>
+
+                      {isMine && (
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '6px', borderTop: '1px solid rgba(255,255,255,0.2)', paddingTop: '6px' }}>
+                          {msg.text && (
+                            <button onClick={() => { setEditingMessageId(msg.id); setEditingMessageText(msg.text); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', color: 'rgba(255,255,255,0.9)' }}>✏️ Editar</button>
+                          )}
+                          <button onClick={() => handleDeleteMessage(msg.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', color: 'rgba(255,255,255,0.9)' }}>🗑️ Borrar</button>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               );
