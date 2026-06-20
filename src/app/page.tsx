@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { getScheduleForDate, TEAM, getAllFutureShiftsForUser, formatDate, ApprovedSwap } from "@/lib/rotation";
 import { db } from "@/lib/firebase";
-import { collection, doc, onSnapshot, setDoc, query, orderBy, limit, addDoc, serverTimestamp, getDoc, deleteDoc, increment } from "firebase/firestore";
+import { collection, doc, onSnapshot, setDoc, query, orderBy, limit, addDoc, serverTimestamp, getDoc, deleteDoc, increment, where, getDocs } from "firebase/firestore";
 
 type Role = "ADMIN" | "USER" | null;
 type Status = "PENDING" | "CONFIRMED" | "ISSUE" | "CHANGE_REQUESTED";
@@ -232,6 +232,36 @@ export default function Home() {
       }
     }
   }, [schedule, approvedSwaps]);
+
+  useEffect(() => {
+    if (currentUser?.role !== "ADMIN") return;
+
+    const cleanOldMessages = async () => {
+      try {
+        const fifteenDaysAgo = new Date();
+        fifteenDaysAgo.setDate(fifteenDaysAgo.getDate() - 15);
+        
+        const qOld = query(collection(db, "messages"), where("timestamp", "<", fifteenDaysAgo));
+        const snap = await getDocs(qOld);
+        
+        let deletedCount = 0;
+        snap.forEach(docSnap => {
+          const data = docSnap.data();
+          if (!data.pinned) {
+            deleteDoc(doc(db, "messages", docSnap.id)).catch(e => console.error("Error eliminando mensaje viejo:", e));
+            deletedCount++;
+          }
+        });
+        if (deletedCount > 0) {
+          console.log(`Sistema automático eliminó ${deletedCount} mensajes antiguos (más de 15 días).`);
+        }
+      } catch (err) {
+        console.error("Error ejecutando limpieza de chat:", err);
+      }
+    };
+
+    cleanOldMessages();
+  }, [currentUser]);
 
   const handleResetRequest = async (name: string) => {
     if (!resetRequests.includes(name)) {
@@ -552,7 +582,7 @@ export default function Home() {
             >
               💬
               {totalUnreadCount > 0 && (
-                <span style={{ position: 'absolute', top: '-4px', right: '-4px', background: 'red', color: 'white', borderRadius: '12px', padding: '2px 6px', fontSize: '0.8rem', fontWeight: 'bold' }}>
+                <span style={{ position: 'absolute', top: '-4px', right: '-4px', background: 'red', color: 'white', borderRadius: '12px', minWidth: '20px', height: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', fontWeight: 'bold', padding: '0 4px', zIndex: 10 }}>
                   {totalUnreadCount}
                 </span>
               )}
@@ -1268,6 +1298,7 @@ interface ChatMessage {
   fileName?: string;
   fileType?: string;
   timestamp: any;
+  pinned?: boolean;
 }
 
 function ChatView({ currentUser, unreadCounts, onClose }: { currentUser: UserState, unreadCounts: Record<string, number>, onClose: () => void }) {
@@ -1301,7 +1332,8 @@ function ChatView({ currentUser, unreadCounts, onClose }: { currentUser: UserSta
             fileUrl: data.fileUrl,
             fileName: data.fileName,
             fileType: data.fileType,
-            timestamp: data.timestamp
+            timestamp: data.timestamp,
+            pinned: data.pinned || false
           });
         }
       });
@@ -1372,6 +1404,10 @@ function ChatView({ currentUser, unreadCounts, onClose }: { currentUser: UserSta
     await setDoc(doc(db, "messages", editingMessageId), { text: editingMessageText }, { merge: true });
     setEditingMessageId(null);
     setEditingMessageText("");
+  };
+
+  const handleTogglePin = async (msg: ChatMessage) => {
+    await setDoc(doc(db, "messages", msg.id), { pinned: !msg.pinned }, { merge: true });
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1453,7 +1489,7 @@ function ChatView({ currentUser, unreadCounts, onClose }: { currentUser: UserSta
           >
             👥 Chat Grupal (Equipo IASD)
             {(unreadCounts["group"] || 0) > 0 && (
-              <span style={{ position: 'absolute', top: '-6px', right: '-6px', background: 'red', color: 'white', borderRadius: '12px', padding: '2px 8px', fontSize: '0.85rem', fontWeight: 'bold' }}>
+              <span style={{ position: 'absolute', top: '-6px', right: '-6px', background: 'red', color: 'white', borderRadius: '12px', minWidth: '22px', height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px', fontSize: '0.85rem', fontWeight: 'bold', zIndex: 10 }}>
                 {unreadCounts["group"]}
               </span>
             )}
@@ -1476,7 +1512,7 @@ function ChatView({ currentUser, unreadCounts, onClose }: { currentUser: UserSta
                   <strong style={{ fontSize: '1.1rem', color: 'var(--glass-text)' }}>{member}</strong>
                 </div>
                 {unread > 0 && (
-                  <div style={{ background: 'red', color: 'white', borderRadius: '12px', padding: '2px 8px', fontSize: '0.85rem', fontWeight: 'bold' }}>
+                  <div style={{ background: 'red', color: 'white', borderRadius: '12px', minWidth: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px', fontSize: '0.85rem', fontWeight: 'bold' }}>
                     {unread}
                   </div>
                 )}
@@ -1486,6 +1522,22 @@ function ChatView({ currentUser, unreadCounts, onClose }: { currentUser: UserSta
         </div>
       ) : (
         <>
+          {messages.filter(m => m.pinned).length > 0 && (
+            <div style={{ background: 'rgba(255, 152, 0, 0.1)', borderBottom: '1px solid rgba(255, 152, 0, 0.3)', padding: '8px 16px', maxHeight: '100px', overflowY: 'auto' }}>
+              <h4 style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: '#ff9800', display: 'flex', alignItems: 'center', gap: '4px' }}>📌 Mensajes Fijados</h4>
+              {messages.filter(m => m.pinned).map(pMsg => (
+                <div key={pMsg.id} style={{ fontSize: '0.85rem', color: 'var(--glass-text)', marginBottom: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '75%' }}>
+                    <strong>{pMsg.sender}:</strong> {pMsg.text || (pMsg.fileType?.startsWith('image/') ? '📷 Imagen' : '📎 Archivo')}
+                  </span>
+                  <button onClick={() => handleTogglePin(pMsg)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--text-muted)', textDecoration: 'underline' }}>Desfijar</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ background: 'rgba(255, 235, 59, 0.15)', padding: '6px', textAlign: 'center', fontSize: '0.75rem', color: '#fbc02d', fontWeight: 'bold' }}>
+            ⚠️ Los mensajes no fijados se eliminan automáticamente después de 15 días.
+          </div>
           <div id="chat-messages-container" className="chat-messages">
             {messages.map(msg => {
               const isMine = msg.sender === currentUser.name;
@@ -1537,14 +1589,17 @@ function ChatView({ currentUser, unreadCounts, onClose }: { currentUser: UserSta
                         </div>
                       )}
 
-                      {isMine && (
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '6px', borderTop: '1px solid rgba(255,255,255,0.2)', paddingTop: '6px' }}>
-                          {msg.text && (
-                            <button onClick={() => { setEditingMessageId(msg.id); setEditingMessageText(msg.text); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', color: 'rgba(255,255,255,0.9)' }}>✏️ Editar</button>
-                          )}
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '6px', borderTop: isMine ? '1px solid rgba(255,255,255,0.2)' : '1px solid rgba(0,0,0,0.1)', paddingTop: '6px' }}>
+                        <button onClick={() => handleTogglePin(msg)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', color: isMine ? 'rgba(255,255,255,0.9)' : '#1976d2' }}>
+                          {msg.pinned ? '📌 Desfijar' : '📌 Fijar'}
+                        </button>
+                        {isMine && msg.text && (
+                          <button onClick={() => { setEditingMessageId(msg.id); setEditingMessageText(msg.text); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', color: 'rgba(255,255,255,0.9)' }}>✏️ Editar</button>
+                        )}
+                        {isMine && (
                           <button onClick={() => handleDeleteMessage(msg.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', color: 'rgba(255,255,255,0.9)' }}>🗑️ Borrar</button>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </>
                   )}
                 </div>
