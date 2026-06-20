@@ -3,7 +3,7 @@ import webpush from 'web-push';
 import { db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 
-const PUBLIC_KEY = "BErq5O6AdtCiF6GFZRikB8nVtXrgiSTxRogu7JLMIxlYcw2Cu32rfVmPJ9GXB2MEoDqgLL1vqzgghfBzDhegsHQ";
+const PUBLIC_KEY = "BGvE_ospDOppl7nBqByjIwlnMVUJXkJkfs6KcYcomTAhA7TYNtSC3QvTZLcBhebKPMd0fL38820ZW2LRLShInOA";
 
 export async function POST(req: Request) {
   try {
@@ -15,7 +15,7 @@ export async function POST(req: Request) {
     webpush.setVapidDetails(
       'mailto:soygaston22@gmail.com',
       PUBLIC_KEY,
-      process.env.VAPID_PRIVATE_KEY
+      process.env.VAPID_PRIVATE_KEY.trim()
     );
     const { username, title, body } = await req.json();
 

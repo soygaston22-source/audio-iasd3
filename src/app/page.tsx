@@ -49,7 +49,7 @@ interface PendingSwap {
 }
 
 const DEFAULT_USER_PASSWORD = "123";
-const PUBLIC_VAPID_KEY = "BErq5O6AdtCiF6GFZRikB8nVtXrgiSTxRogu7JLMIxlYcw2Cu32rfVmPJ9GXB2MEoDqgLL1vqzgghfBzDhegsHQ";
+const PUBLIC_VAPID_KEY = "BGvE_ospDOppl7nBqByjIwlnMVUJXkJkfs6KcYcomTAhA7TYNtSC3QvTZLcBhebKPMd0fL38820ZW2LRLShInOA";
 
 function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
