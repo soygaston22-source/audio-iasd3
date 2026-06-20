@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { getScheduleForDate, TEAM, getAllFutureShiftsForUser, formatDate, ApprovedSwap } from "@/lib/rotation";
 import { db } from "@/lib/firebase";
-import { collection, doc, onSnapshot, setDoc, query, orderBy, limit, addDoc, serverTimestamp, getDoc, deleteDoc, increment, where, getDocs } from "firebase/firestore";
+import { collection, doc, onSnapshot, setDoc, query, orderBy, limit, addDoc, serverTimestamp, getDoc, deleteDoc, increment, where, getDocs, updateDoc } from "firebase/firestore";
 
 type Role = "ADMIN" | "USER" | null;
 type Status = "PENDING" | "CONFIRMED" | "ISSUE" | "CHANGE_REQUESTED";
@@ -49,7 +49,7 @@ interface PendingSwap {
 }
 
 const DEFAULT_USER_PASSWORD = "123";
-const PUBLIC_VAPID_KEY = "BGvE_ospDOppl7nBqByjIwlnMVUJXkJkfs6KcYcomTAhA7TYNtSC3QvTZLcBhebKPMd0fL38820ZW2LRLShInOA";
+const PUBLIC_VAPID_KEY = "BLTCkrYIKWTMHzx2d3I5wVUXhrV6lh_6MtQJK6QPBqHP6dWcmIPt-Ke58HZSzGv85l6hEBq7M3HeJgzKxVkulGs";
 
 function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -1343,16 +1343,16 @@ function ChatView({ currentUser, unreadCounts, onClose }: { currentUser: UserSta
         if (chatContainer) chatContainer.scrollTop = chatContainer.scrollHeight;
         
         // Clear unread count when reading
-        setDoc(doc(db, "users", currentUser.name), {
-          unreadCounts: { [chatId]: 0 }
-        }, { merge: true });
+        updateDoc(doc(db, "users", currentUser.name), {
+          [`unreadCounts.${chatId}`]: 0
+        }).catch(e => console.error(e));
       }, 50);
     });
 
     // Initial clear when opening
-    setDoc(doc(db, "users", currentUser.name), {
-      unreadCounts: { [chatId]: 0 }
-    }, { merge: true });
+    updateDoc(doc(db, "users", currentUser.name), {
+      [`unreadCounts.${chatId}`]: 0
+    }).catch(e => console.error(e));
 
     return () => unsub();
   }, [selectedChat, currentUser.name]);
@@ -1378,15 +1378,15 @@ function ChatView({ currentUser, unreadCounts, onClose }: { currentUser: UserSta
     if (selectedChat === "group") {
       TEAM.forEach(member => {
         if (member !== currentUser.name) {
-          setDoc(doc(db, "users", member), { 
-            unreadCounts: { group: increment(1) }
-          }, { merge: true });
+          updateDoc(doc(db, "users", member), { 
+            [`unreadCounts.group`]: increment(1)
+          }).catch(e => console.error(e));
         }
       });
     } else {
-      setDoc(doc(db, "users", selectedChat), { 
-        unreadCounts: { [chatId]: increment(1) }
-      }, { merge: true });
+      updateDoc(doc(db, "users", selectedChat), { 
+        [`unreadCounts.${chatId}`]: increment(1)
+      }).catch(e => console.error(e));
       
       // Notificar por push al usuario
       sendPushNotification(selectedChat, `Nuevo mensaje de ${currentUser.name}`, textToSend);
@@ -1450,15 +1450,15 @@ function ChatView({ currentUser, unreadCounts, onClose }: { currentUser: UserSta
       if (selectedChat === "group") {
         TEAM.forEach(member => {
           if (member !== currentUser.name) {
-            setDoc(doc(db, "users", member), { 
-              unreadCounts: { group: increment(1) }
-            }, { merge: true });
+            updateDoc(doc(db, "users", member), { 
+              [`unreadCounts.group`]: increment(1)
+            }).catch(e => console.error(e));
           }
         });
       } else {
-        setDoc(doc(db, "users", selectedChat), { 
-          unreadCounts: { [chatId]: increment(1) }
-        }, { merge: true });
+        updateDoc(doc(db, "users", selectedChat), { 
+          [`unreadCounts.${chatId}`]: increment(1)
+        }).catch(e => console.error(e));
 
         sendPushNotification(selectedChat, `Archivo de ${currentUser.name}`, `Ha enviado un archivo adjunto.`);
       }

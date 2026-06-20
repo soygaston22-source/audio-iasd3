@@ -177,15 +177,24 @@ body {
   position: fixed;
   top: 0;
   left: 0;
+  right: 0;
+  bottom: 0;
   width: 100%;
-  height: 100dvh; /* dynamic viewport height para iOS */
-  background: var(--glass-bg);
+  height: 100vh; /* fallback */
+  height: 100dvh;
+  background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   z-index: 2000;
   display: flex;
   flex-direction: column;
   padding-bottom: env(safe-area-inset-bottom);
+}
+
+@media (prefers-color-scheme: dark) {
+  .chat-modal {
+    background: rgba(18, 18, 18, 0.95);
+  }
 }
 
 .chat-header {
