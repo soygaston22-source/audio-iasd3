@@ -32,7 +32,7 @@ export function getWeekNumber(d: Date): { weekNo: number; year: number } {
   return { weekNo, year: date.getUTCFullYear() };
 }
 
-export function getScheduleForDate(date: Date, approvedSwaps: ApprovedSwap[] = []) {
+export function getScheduleForDate(date: Date, approvedSwaps: ApprovedSwap[] = [], seedOffset: number = 0) {
   const { weekNo, year } = getWeekNumber(date);
   
   // A "block" is a 2-week period where all 8 members serve exactly once.
@@ -41,8 +41,8 @@ export function getScheduleForDate(date: Date, approvedSwaps: ApprovedSwap[] = [
   const blockNumber = Math.floor(wIndex / 2);
   const weekWithinBlock = wIndex % 2; // 0 or 1
   
-  // Seed based on year and blockNumber to get a deterministic shuffle for this 2-week period
-  const seed = year * 1000 + blockNumber;
+  // Seed based on year, blockNumber and global offset to get a deterministic shuffle for this 2-week period
+  const seed = year * 1000 + blockNumber + seedOffset;
   let randomQueue = [...TEAM];
   
   // Deterministic shuffle
@@ -111,13 +111,13 @@ export function formatDate(dateStr: string | Date): string {
   return formatted.charAt(0).toUpperCase() + formatted.slice(1);
 }
 
-export function getAllFutureShiftsForUser(userName: string, fromDate: Date = new Date(), limit: number = 5, approvedSwaps: ApprovedSwap[] = []) {
+export function getAllFutureShiftsForUser(userName: string, fromDate: Date = new Date(), limit: number = 5, approvedSwaps: ApprovedSwap[] = [], seedOffset: number = 0) {
   let searchDate = new Date(fromDate);
   const shifts = [];
   
   // Search up to 2 years ahead if necessary
   for (let i = 0; i < 104; i++) { 
-    const sched = getScheduleForDate(searchDate, approvedSwaps);
+    const sched = getScheduleForDate(searchDate, approvedSwaps, seedOffset);
     if (sched.morning.includes(userName)) {
       shifts.push({ shift: "Mañana", date: sched.date });
     } else if (sched.afternoon.includes(userName)) {

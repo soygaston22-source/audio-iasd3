@@ -20,6 +20,16 @@ interface ActivityEntry {
   action: string;
 }
 
+export interface Announcement {
+  id: string;
+  text: string;
+  fileUrl?: string | null;
+  fileName?: string | null;
+  fileType?: string | null;
+  timestamp: any;
+  author: string;
+}
+
 interface FutureChangeRequest {
   id: string;
   user: string;
@@ -88,6 +98,8 @@ export default function Home() {
   const [futureRequests, setFutureRequests] = useState<FutureChangeRequest[]>([]);
   const [pendingSwaps, setPendingSwaps] = useState<PendingSwap[]>([]);
   const [approvedSwaps, setApprovedSwaps] = useState<ApprovedSwap[]>([]);
+  const [seedOffset, setSeedOffset] = useState<number>(0);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
 
   const addLog = async (action: string) => {
     try {
@@ -111,15 +123,17 @@ export default function Home() {
         if (data.futureRequests) setFutureRequests(data.futureRequests);
         if (data.pendingSwaps) setPendingSwaps(data.pendingSwaps);
         if (data.approvedSwaps) setApprovedSwaps(data.approvedSwaps);
+        if (data.seedOffset !== undefined) setSeedOffset(data.seedOffset);
       } else {
         // Init global state if not exists
-        const sched = getScheduleForDate(new Date());
+        const sched = getScheduleForDate(new Date(), [], 0);
         setDoc(doc(db, "app_state", "global"), {
           schedule: sched,
           resetRequests: [],
           futureRequests: [],
           pendingSwaps: [],
-          approvedSwaps: []
+          approvedSwaps: [],
+          seedOffset: 0
         });
         setSchedule(sched);
       }
@@ -158,12 +172,32 @@ export default function Home() {
       setActivityLog(logs);
     });
 
+    // 4. Listen to announcements
+    const qAnnouncements = query(collection(db, "announcements"), orderBy("timestamp", "desc"));
+    const unsubAnnouncements = onSnapshot(qAnnouncements, (snap) => {
+      const anns: Announcement[] = [];
+      snap.forEach(docSnap => {
+        const data = docSnap.data();
+        anns.push({
+          id: docSnap.id,
+          text: data.text,
+          fileUrl: data.fileUrl,
+          fileName: data.fileName,
+          fileType: data.fileType,
+          timestamp: data.timestamp,
+          author: data.author
+        });
+      });
+      setAnnouncements(anns);
+    });
+
     setTimeout(() => setLoading(false), 2000);
 
     return () => {
       unsubGlobal();
       unsubUsers();
       unsubLogs();
+      unsubAnnouncements();
     };
   }, []);
 
@@ -172,7 +206,7 @@ export default function Home() {
     if (schedule) {
       const today = new Date();
       if (today.getDay() === 0) today.setDate(today.getDate() + 1); // Sunday belongs to next week's schedule
-      const expectedSched = getScheduleForDate(today, approvedSwaps);
+      const expectedSched = getScheduleForDate(today, approvedSwaps, seedOffset);
 
       if (schedule.date !== expectedSched.date) {
         // Schedule is outdated! Roll it forward.
@@ -405,6 +439,31 @@ export default function Home() {
     sendPushNotification(req.user, "Solicitud Futura Rechazada", `El Administrador ha denegado tu solicitud de cambio para el ${req.date}.`);
   };
 
+  const handleRandomReassign = async () => {
+    if (!confirm("⚠️ ¡ADVERTENCIA EXTREMA!\n\nEstás a punto de reasignar aleatoriamente TODOS los turnos futuros.\n\nEsto borrará todos los trueques pendientes y confirmaciones actuales.\n\n¿Estás completamente seguro de continuar?")) return;
+    
+    const newOffset = Math.floor(Math.random() * 1000000);
+    const today = new Date();
+    if (today.getDay() === 0) today.setDate(today.getDate() + 1);
+    
+    const newSched = getScheduleForDate(today, [], newOffset);
+    
+    // Reset all statuses
+    TEAM.forEach(member => {
+      setDoc(doc(db, "users", member), { status: "PENDING" }, { merge: true });
+    });
+
+    await setDoc(doc(db, "app_state", "global"), { 
+      seedOffset: newOffset,
+      pendingSwaps: [],
+      approvedSwaps: [],
+      schedule: newSched
+    }, { merge: true });
+
+    addLog(`🎲 Administrador ha reasignado aleatoriamente todos los turnos futuros.`);
+    alert("¡Éxito! Todos los turnos han sido reasignados aleatoriamente y los trueques han sido limpiados.");
+  };
+
   if (loading) {
     return (
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'white' }}>
@@ -481,6 +540,8 @@ export default function Home() {
             notifications={userNotifications[currentUser.name] || []}
             pendingSwaps={pendingSwaps.filter(s => s.toUser === currentUser.name)}
             approvedSwaps={approvedSwaps}
+            seedOffset={seedOffset}
+            announcements={announcements}
             onConfirm={handleConfirm}
             onIssue={handleIssue}
             onFutureIssue={handleFutureIssue}
@@ -499,11 +560,13 @@ export default function Home() {
             resetRequests={resetRequests}
             futureRequests={futureRequests}
             approvedSwaps={approvedSwaps}
+            announcements={announcements}
             onChangeAssignment={handleAdminChange}
             onRejectAssignment={handleAdminRejectChange}
             onResetPassword={handleResetPassword}
             onDismissFutureRequest={handleDismissFutureRequest}
             onRejectFutureRequest={handleRejectFutureRequest}
+            onRandomReassign={handleRandomReassign}
           />
         )}
       </main>
@@ -515,13 +578,13 @@ export default function Home() {
   );
 }
 
-function UserView({ currentDate, schedule, userName, status, notifications, pendingSwaps, approvedSwaps, onConfirm, onIssue, onFutureIssue, onChangePassword, onClearNotifications, onAcceptSwap, onRejectSwap }: { 
-  currentDate: Date, schedule: any, userName: string, status: Status, notifications: string[], pendingSwaps: PendingSwap[], approvedSwaps: ApprovedSwap[], onConfirm: () => void, onIssue: () => void, onFutureIssue: (date: string, shift: string, targetUser: string, targetDate: string, targetShift: string) => void, onChangePassword: () => void, onClearNotifications: () => void, onAcceptSwap: (swap: PendingSwap) => void, onRejectSwap: (swap: PendingSwap) => void
+function UserView({ currentDate, schedule, userName, status, notifications, pendingSwaps, approvedSwaps, seedOffset, announcements, onConfirm, onIssue, onFutureIssue, onChangePassword, onClearNotifications, onAcceptSwap, onRejectSwap }: { 
+  currentDate: Date, schedule: any, userName: string, status: Status, notifications: string[], pendingSwaps: PendingSwap[], approvedSwaps: ApprovedSwap[], seedOffset: number, announcements: Announcement[], onConfirm: () => void, onIssue: () => void, onFutureIssue: (date: string, shift: string, targetUser: string, targetDate: string, targetShift: string) => void, onChangePassword: () => void, onClearNotifications: () => void, onAcceptSwap: (swap: PendingSwap) => void, onRejectSwap: (swap: PendingSwap) => void
 }) {
   const isSunday = currentDate.getDay() === 0;
   const searchFrom = isSunday ? new Date(currentDate.getTime() + 86400000) : currentDate;
   
-  const futureShifts = getAllFutureShiftsForUser(userName, searchFrom, 5, approvedSwaps);
+  const futureShifts = getAllFutureShiftsForUser(userName, searchFrom, 5, approvedSwaps, seedOffset);
   
   const [swapModalState, setSwapModalState] = useState<{
     shiftDate: string;
@@ -610,7 +673,7 @@ function UserView({ currentDate, schedule, userName, status, notifications, pend
                       className="btn btn-outline"
                       style={{ padding: '10px' }}
                       onClick={() => {
-                        const shifts = getAllFutureShiftsForUser(member, searchFrom, 5, approvedSwaps);
+                        const shifts = getAllFutureShiftsForUser(member, searchFrom, 5, approvedSwaps, seedOffset);
                         setSwapModalState({ ...swapModalState, targetUser: member, targetShifts: shifts });
                       }}
                     >
@@ -750,13 +813,118 @@ function UserView({ currentDate, schedule, userName, status, notifications, pend
           </div>
         </div>
       )}
+
+      {/* Sección de Novedades */}
+      <div style={{ marginTop: '24px' }}>
+        <h4 style={{ marginBottom: '16px', fontSize: '1.2rem', color: 'var(--primary-red)' }}>📢 Novedades y Avisos</h4>
+        {announcements.length === 0 ? (
+          <div className="glass-card" style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
+            <p>No hay avisos recientes.</p>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {announcements.map((ann, idx) => {
+              const lines = ann.text.split('\n');
+              const title = lines[0];
+              const body = lines.slice(1).join('\n');
+              
+              return (
+                <div key={ann.id || idx} className="glass-card" style={{ padding: '16px', borderLeft: '4px solid var(--primary-red)' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                    {ann.timestamp?.seconds ? new Date(ann.timestamp.seconds * 1000).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' }) : 'Reciente'}
+                  </div>
+                  <h3 style={{ fontSize: '1.2rem', marginBottom: '8px' }}>{title}</h3>
+                  <p style={{ whiteSpace: 'pre-wrap', color: 'var(--glass-text)', fontSize: '0.95rem', marginBottom: ann.fileUrl ? '16px' : '0' }}>
+                    {body}
+                  </p>
+                  
+                  {ann.fileUrl && (
+                    <div style={{ marginTop: '12px', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '12px' }}>
+                      <a 
+                        href={ann.fileUrl} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="btn btn-outline"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 16px', textDecoration: 'none', color: 'white' }}
+                      >
+                        📎 Descargar Adjunto
+                      </a>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-function AdminView({ schedule, statuses, activityLog, resetRequests, futureRequests, approvedSwaps, onChangeAssignment, onRejectAssignment, onResetPassword, onDismissFutureRequest, onRejectFutureRequest }: { 
-  schedule: any, statuses: Record<string, Status>, activityLog: ActivityEntry[], resetRequests: string[], futureRequests: FutureChangeRequest[], approvedSwaps: ApprovedSwap[], onChangeAssignment: (member: string) => void, onRejectAssignment: (member: string) => void, onResetPassword: (member: string) => void, onDismissFutureRequest: (id: string) => void, onRejectFutureRequest: (req: FutureChangeRequest) => void 
+function AdminView({ schedule, statuses, activityLog, resetRequests, futureRequests, approvedSwaps, announcements, onChangeAssignment, onRejectAssignment, onResetPassword, onDismissFutureRequest, onRejectFutureRequest, onRandomReassign }: { 
+  schedule: any, statuses: Record<string, Status>, activityLog: ActivityEntry[], resetRequests: string[], futureRequests: FutureChangeRequest[], approvedSwaps: ApprovedSwap[], announcements: Announcement[], onChangeAssignment: (member: string) => void, onRejectAssignment: (member: string) => void, onResetPassword: (member: string) => void, onDismissFutureRequest: (id: string) => void, onRejectFutureRequest: (req: FutureChangeRequest) => void, onRandomReassign: () => void 
 }) {
+  const [newsTitle, setNewsTitle] = useState("");
+  const [newsText, setNewsText] = useState("");
+  const [newsFile, setNewsFile] = useState<File | null>(null);
+  const [isUploadingNews, setIsUploadingNews] = useState(false);
+  const newsFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handlePostAnnouncement = async () => {
+    if (!newsTitle.trim() || !newsText.trim()) {
+      alert("Debes escribir un título y una descripción.");
+      return;
+    }
+
+    setIsUploadingNews(true);
+    try {
+      let fileUrl = null;
+      let fileName = null;
+      let fileType = null;
+
+      if (newsFile) {
+        const formData = new FormData();
+        formData.append("file", newsFile);
+        formData.append("upload_preset", "chat_iasd"); 
+
+        const res = await fetch(`https://api.cloudinary.com/v1_1/df2phyuoo/upload`, {
+          method: "POST",
+          body: formData
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error?.message || "Error al subir a Cloudinary");
+
+        fileUrl = data.secure_url;
+        fileName = newsFile.name;
+        fileType = newsFile.type || data.resource_type;
+      }
+
+      await addDoc(collection(db, "announcements"), {
+        text: `${newsTitle}\n\n${newsText}`,
+        fileUrl,
+        fileName,
+        fileType,
+        author: "Administrador",
+        timestamp: serverTimestamp()
+      });
+
+      setNewsTitle("");
+      setNewsText("");
+      setNewsFile(null);
+      if (newsFileInputRef.current) newsFileInputRef.current.value = "";
+      alert("¡Anuncio publicado en el tablón de novedades!");
+
+      // Notificar a todos
+      TEAM.forEach(member => {
+        sendPushNotification(member, `📢 Nuevo Aviso: ${newsTitle}`, "El administrador ha publicado una nueva novedad en la App.");
+      });
+    } catch (err: any) {
+alert("Error al publicar: " + err.message);
+    } finally {
+      setIsUploadingNews(false);
+    }
+  };
+
   const renderShift = (title: string, members: string[]) => (
     <div style={{ marginBottom: '24px' }}>
       <h3 style={{ borderBottom: '2px solid var(--primary-red)', paddingBottom: '8px', marginBottom: '16px' }}>
@@ -806,6 +974,49 @@ function AdminView({ schedule, statuses, activityLog, resetRequests, futureReque
       <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
         <h3 style={{ textShadow: '0 2px 4px rgba(255,255,255,0.5)' }}>Panel de Administrador</h3>
         <p style={{ color: 'var(--text-muted)' }}>Semana {schedule.weekNo} - {schedule.year}</p>
+      </div>
+
+      <div className="glass-card" style={{ marginBottom: '24px', border: '1px solid var(--primary-red)' }}>
+        <h3 style={{ marginBottom: '16px' }}>📢 Publicar Novedad</h3>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <input 
+            type="text" 
+            placeholder="Título del anuncio..." 
+            value={newsTitle}
+            onChange={(e) => setNewsTitle(e.target.value)}
+            style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid var(--glass-border)', background: 'rgba(255,255,255,0.1)', color: 'white' }}
+          />
+          <textarea 
+            placeholder="Escribe los detalles aquí..." 
+            value={newsText}
+            onChange={(e) => setNewsText(e.target.value)}
+            style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid var(--glass-border)', background: 'rgba(255,255,255,0.1)', color: 'white', minHeight: '100px' }}
+          />
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <input 
+              type="file" 
+              ref={newsFileInputRef}
+              onChange={(e) => setNewsFile(e.target.files?.[0] || null)}
+              style={{ display: 'none' }}
+              accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.ppt,.pptx"
+            />
+            <button 
+              className="btn btn-outline"
+              onClick={() => newsFileInputRef.current?.click()}
+              style={{ padding: '8px 16px', fontSize: '0.9rem' }}
+            >
+              📎 {newsFile ? newsFile.name : 'Adjuntar Archivo'}
+            </button>
+            <button 
+              className="btn"
+              onClick={handlePostAnnouncement}
+              disabled={isUploadingNews}
+              style={{ flex: 1 }}
+            >
+              {isUploadingNews ? "Subiendo..." : "Publicar"}
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="glass-card" style={{ backgroundColor: 'rgba(239, 108, 0, 0.1)', color: '#ef6c00', border: '1px solid rgba(239, 108, 0, 0.3)', marginBottom: '24px', fontSize: '0.9rem' }}>
@@ -902,6 +1113,20 @@ function AdminView({ schedule, statuses, activityLog, resetRequests, futureReque
           </div>
         )}
       </div>
+
+      <div style={{ marginTop: '2rem', padding: '20px', background: 'rgba(211,47,47,0.1)', border: '1px solid rgba(211,47,47,0.3)', borderRadius: '12px' }}>
+        <h3 style={{ color: '#d32f2f', marginBottom: '16px' }}>⚙️ Zona de Peligro</h3>
+        <p style={{ color: 'var(--glass-text)', marginBottom: '16px', fontSize: '0.9rem' }}>
+          Utiliza este botón solo si necesitas reiniciar por completo el calendario matemático (por ejemplo, para el nuevo trimestre). Borrará todas las confirmaciones y trueques actuales.
+        </p>
+        <button 
+          onClick={onRandomReassign}
+          style={{ width: '100%', padding: '12px', background: '#d32f2f', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '1.1rem' }}
+        >
+          🎲 Reasignar Aleatoriamente Todos los Turnos
+        </button>
+      </div>
+
     </div>
   );
 }
