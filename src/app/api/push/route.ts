@@ -15,7 +15,7 @@ export async function POST(req: Request) {
     webpush.setVapidDetails(
       'mailto:soygaston22@gmail.com',
       PUBLIC_KEY,
-      process.env.VAPID_PRIVATE_KEY.trim()
+      process.env.VAPID_PRIVATE_KEY.trim().replace(/^"|"$|^'|'$/g, '')
     );
     const { username, title, body } = await req.json();
 

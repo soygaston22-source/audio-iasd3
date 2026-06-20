@@ -559,6 +559,10 @@ export default function Home() {
     );
   }
 
+  if (chatOpen && currentUser) {
+    return <ChatView currentUser={currentUser} unreadCounts={currentUserUnreads} onClose={() => setChatOpen(false)} />;
+  }
+
   return (
     <>
       <header className="app-bar">
@@ -660,10 +664,6 @@ export default function Home() {
             </div>
           </div>
         </div>
-      )}
-
-      {chatOpen && currentUser && (
-        <ChatView currentUser={currentUser} unreadCounts={currentUserUnreads} onClose={() => setChatOpen(false)} />
       )}
     </>
   );
