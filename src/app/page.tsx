@@ -516,7 +516,7 @@ export default function Home() {
   const [showYoutubePlayer, setShowYoutubePlayer] = useState(false);
 
   const currentUserUnreads = currentUser ? (userUnreadCounts[currentUser.name] || {}) : {};
-  const totalUnreadCount = Object.values(currentUserUnreads).reduce((a, b) => a + b, 0);
+  const totalUnreadCount = Object.values(currentUserUnreads).reduce((a, b) => a + (Number(b) || 0), 0);
 
   if (loading) {
     return (
@@ -1344,14 +1344,14 @@ function ChatView({ currentUser, unreadCounts, onClose }: { currentUser: UserSta
         
         // Clear unread count when reading
         setDoc(doc(db, "users", currentUser.name), {
-          [`unreadCounts.${chatId}`]: 0
+          unreadCounts: { [chatId]: 0 }
         }, { merge: true });
       }, 50);
     });
 
     // Initial clear when opening
     setDoc(doc(db, "users", currentUser.name), {
-      [`unreadCounts.${chatId}`]: 0
+      unreadCounts: { [chatId]: 0 }
     }, { merge: true });
 
     return () => unsub();
@@ -1379,13 +1379,13 @@ function ChatView({ currentUser, unreadCounts, onClose }: { currentUser: UserSta
       TEAM.forEach(member => {
         if (member !== currentUser.name) {
           setDoc(doc(db, "users", member), { 
-            [`unreadCounts.group`]: increment(1) 
+            unreadCounts: { group: increment(1) }
           }, { merge: true });
         }
       });
     } else {
       setDoc(doc(db, "users", selectedChat), { 
-        [`unreadCounts.${chatId}`]: increment(1) 
+        unreadCounts: { [chatId]: increment(1) }
       }, { merge: true });
       
       // Notificar por push al usuario
@@ -1451,13 +1451,13 @@ function ChatView({ currentUser, unreadCounts, onClose }: { currentUser: UserSta
         TEAM.forEach(member => {
           if (member !== currentUser.name) {
             setDoc(doc(db, "users", member), { 
-              [`unreadCounts.group`]: increment(1) 
+              unreadCounts: { group: increment(1) }
             }, { merge: true });
           }
         });
       } else {
         setDoc(doc(db, "users", selectedChat), { 
-          [`unreadCounts.${chatId}`]: increment(1) 
+          unreadCounts: { [chatId]: increment(1) }
         }, { merge: true });
 
         sendPushNotification(selectedChat, `Archivo de ${currentUser.name}`, `Ha enviado un archivo adjunto.`);
