@@ -3,7 +3,7 @@ import webpush from 'web-push';
 import { db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 
-const PUBLIC_KEY = "BKg1ejz3VTJz5cnWTqtNnahqycmcrTm2JmTVCE2bhkcPkGRWO2syvyMW-aeojV0JmQuNg72GiM-FDGPiIjWrgFs";
+const PUBLIC_KEY = "BErq5O6AdtCiF6GFZRikB8nVtXrgiSTxRogu7JLMIxlYcw2Cu32rfVmPJ9GXB2MEoDqgLL1vqzgghfBzDhegsHQ";
 
 export async function POST(req: Request) {
   try {
