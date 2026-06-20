@@ -839,15 +839,31 @@ function UserView({ currentDate, schedule, userName, status, notifications, pend
                   </p>
                   
                   {ann.fileUrl && (
-                    <div style={{ marginTop: '12px', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '12px' }}>
+                    <div style={{ marginTop: '12px', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      
+                      {/* Previews condicionales */}
+                      {(ann.fileType?.startsWith('image/') || (!ann.fileType && ann.fileUrl.match(/\.(jpeg|jpg|gif|png)$/i))) && (
+                        <div style={{ position: 'relative', width: '100%', maxHeight: '400px', overflow: 'hidden', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
+                           <img src={ann.fileUrl} alt="Preview adjunto" style={{ width: '100%', height: 'auto', display: 'block', objectFit: 'contain', backgroundColor: 'rgba(0,0,0,0.5)' }} />
+                        </div>
+                      )}
+
+                      {(ann.fileType?.startsWith('video/') || (!ann.fileType && ann.fileUrl.match(/\.(mp4|webm|ogg)$/i))) && (
+                        <video src={ann.fileUrl} controls style={{ width: '100%', maxHeight: '400px', borderRadius: '8px', backgroundColor: '#000', border: '1px solid var(--glass-border)' }} />
+                      )}
+
+                      {(ann.fileType === 'application/pdf' || (!ann.fileType && ann.fileUrl.match(/\.pdf$/i))) && (
+                        <iframe src={`https://docs.google.com/gview?url=${ann.fileUrl}&embedded=true`} style={{ width: '100%', height: '350px', border: 'none', borderRadius: '8px', backgroundColor: '#fff' }} title="PDF Preview" />
+                      )}
+
                       <a 
                         href={ann.fileUrl} 
                         target="_blank" 
                         rel="noopener noreferrer"
                         className="btn btn-outline"
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 16px', textDecoration: 'none', color: 'white' }}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 16px', textDecoration: 'none', color: 'white', alignSelf: 'flex-start' }}
                       >
-                        📎 Descargar Adjunto
+                        📎 {ann.fileName ? `Descargar ${ann.fileName.slice(0, 25)}${ann.fileName.length > 25 ? '...' : ''}` : 'Descargar Adjunto'}
                       </a>
                     </div>
                   )}
