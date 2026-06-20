@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { getScheduleForDate, TEAM, getAllFutureShiftsForUser, formatDate, ApprovedSwap } from "@/lib/rotation";
 import { db } from "@/lib/firebase";
-import { collection, doc, onSnapshot, setDoc, query, orderBy, limit, addDoc, serverTimestamp, getDoc } from "firebase/firestore";
+import { collection, doc, onSnapshot, setDoc, query, orderBy, limit, addDoc, serverTimestamp, getDoc, deleteDoc } from "firebase/firestore";
 
 type Role = "ADMIN" | "USER" | null;
 type Status = "PENDING" | "CONFIRMED" | "ISSUE" | "CHANGE_REQUESTED";
@@ -464,6 +464,13 @@ export default function Home() {
     alert("¡Éxito! Todos los turnos han sido reasignados aleatoriamente y los trueques han sido limpiados.");
   };
 
+  const handleDeleteAnnouncement = async (id: string) => {
+    if (confirm("¿Estás seguro de que deseas eliminar este aviso?")) {
+      await deleteDoc(doc(db, "announcements", id));
+      addLog(`🗑️ Administrador ha eliminado una novedad.`);
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'white' }}>
@@ -567,6 +574,7 @@ export default function Home() {
             onDismissFutureRequest={handleDismissFutureRequest}
             onRejectFutureRequest={handleRejectFutureRequest}
             onRandomReassign={handleRandomReassign}
+            onDeleteAnnouncement={handleDeleteAnnouncement}
           />
         )}
       </main>
@@ -700,7 +708,7 @@ function UserView({ currentDate, schedule, userName, status, notifications, pend
                           setSwapModalState(null);
                         }}
                       >
-                        <span style={{ fontWeight: 'bold', fontSize: '1.1rem', color: 'white' }}>{formatDate(s.date)}</span><br/>
+                        <span style={{ fontWeight: 'bold', fontSize: '1.1rem', color: 'var(--glass-text)' }}>{formatDate(s.date)}</span><br/>
                         <span style={{ fontSize: '0.9rem', color: 'var(--glass-text)' }}>Turno {s.shift}</span>
                       </button>
                     ))
@@ -861,7 +869,7 @@ function UserView({ currentDate, schedule, userName, status, notifications, pend
                         target="_blank" 
                         rel="noopener noreferrer"
                         className="btn btn-outline"
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 16px', textDecoration: 'none', color: 'white', alignSelf: 'flex-start' }}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 16px', textDecoration: 'none', alignSelf: 'flex-start' }}
                       >
                         📎 {ann.fileName ? `Descargar ${ann.fileName.slice(0, 25)}${ann.fileName.length > 25 ? '...' : ''}` : 'Descargar Adjunto'}
                       </a>
@@ -877,8 +885,8 @@ function UserView({ currentDate, schedule, userName, status, notifications, pend
   );
 }
 
-function AdminView({ schedule, statuses, activityLog, resetRequests, futureRequests, approvedSwaps, announcements, onChangeAssignment, onRejectAssignment, onResetPassword, onDismissFutureRequest, onRejectFutureRequest, onRandomReassign }: { 
-  schedule: any, statuses: Record<string, Status>, activityLog: ActivityEntry[], resetRequests: string[], futureRequests: FutureChangeRequest[], approvedSwaps: ApprovedSwap[], announcements: Announcement[], onChangeAssignment: (member: string) => void, onRejectAssignment: (member: string) => void, onResetPassword: (member: string) => void, onDismissFutureRequest: (id: string) => void, onRejectFutureRequest: (req: FutureChangeRequest) => void, onRandomReassign: () => void 
+function AdminView({ schedule, statuses, activityLog, resetRequests, futureRequests, approvedSwaps, announcements, onChangeAssignment, onRejectAssignment, onResetPassword, onDismissFutureRequest, onRejectFutureRequest, onRandomReassign, onDeleteAnnouncement }: { 
+  schedule: any, statuses: Record<string, Status>, activityLog: ActivityEntry[], resetRequests: string[], futureRequests: FutureChangeRequest[], approvedSwaps: ApprovedSwap[], announcements: Announcement[], onChangeAssignment: (member: string) => void, onRejectAssignment: (member: string) => void, onResetPassword: (member: string) => void, onDismissFutureRequest: (id: string) => void, onRejectFutureRequest: (req: FutureChangeRequest) => void, onRandomReassign: () => void, onDeleteAnnouncement: (id: string) => void 
 }) {
   const [newsTitle, setNewsTitle] = useState("");
   const [newsText, setNewsText] = useState("");
@@ -1000,13 +1008,13 @@ alert("Error al publicar: " + err.message);
             placeholder="Título del anuncio..." 
             value={newsTitle}
             onChange={(e) => setNewsTitle(e.target.value)}
-            style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid var(--glass-border)', background: 'rgba(255,255,255,0.1)', color: 'white' }}
+            style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid var(--glass-border)', background: 'rgba(0,0,0,0.05)', color: 'var(--glass-text)', fontSize: '1rem' }}
           />
           <textarea 
             placeholder="Escribe los detalles aquí..." 
             value={newsText}
             onChange={(e) => setNewsText(e.target.value)}
-            style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid var(--glass-border)', background: 'rgba(255,255,255,0.1)', color: 'white', minHeight: '100px' }}
+            style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid var(--glass-border)', background: 'rgba(0,0,0,0.05)', color: 'var(--glass-text)', minHeight: '100px', fontSize: '1rem', fontFamily: 'inherit' }}
           />
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
             <input 
@@ -1034,6 +1042,31 @@ alert("Error al publicar: " + err.message);
           </div>
         </div>
       </div>
+
+      {announcements.length > 0 && (
+        <div style={{ marginBottom: '24px' }}>
+          <h4 style={{ marginBottom: '12px', color: 'var(--text-muted)' }}>Novedades Publicadas</h4>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {announcements.map((ann, idx) => (
+              <div key={ann.id || idx} className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px' }}>
+                <div style={{ flex: 1, overflow: 'hidden' }}>
+                  <strong style={{ display: 'block', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{ann.text.split('\n')[0]}</strong>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    {ann.timestamp?.seconds ? new Date(ann.timestamp.seconds * 1000).toLocaleDateString() : 'Reciente'}
+                  </span>
+                </div>
+                <button 
+                  onClick={() => ann.id && onDeleteAnnouncement(ann.id)}
+                  style={{ background: 'none', border: 'none', color: '#d32f2f', fontSize: '1.2rem', cursor: 'pointer', padding: '8px' }}
+                  title="Eliminar Novedad"
+                >
+                  🗑️
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="glass-card" style={{ backgroundColor: 'rgba(239, 108, 0, 0.1)', color: '#ef6c00', border: '1px solid rgba(239, 108, 0, 0.3)', marginBottom: '24px', fontSize: '0.9rem' }}>
         <strong>Nota:</strong> Los cambios manuales dispararán notificaciones In-App automáticas a los reemplazos.
@@ -1321,7 +1354,7 @@ function ChatView({ currentUser, onClose }: { currentUser: UserState, onClose: (
                   )}
                   {msg.text && <div style={{ wordBreak: 'break-word' }}>{msg.text}</div>}
                   {msg.fileUrl && (
-                    <div style={{ marginTop: msg.text ? '8px' : '0' }}>
+                    <div style={{ marginTop: msg.text ? '8px' : '0', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                       {msg.fileType?.startsWith('image/') ? (
                         <img src={msg.fileUrl} alt={msg.fileName} style={{ maxWidth: '100%', borderRadius: '8px', maxHeight: '250px', objectFit: 'cover' }} />
                       ) : msg.fileType?.startsWith('video/') ? (
@@ -1329,10 +1362,18 @@ function ChatView({ currentUser, onClose }: { currentUser: UserState, onClose: (
                       ) : msg.fileType?.startsWith('audio/') ? (
                         <audio src={msg.fileUrl} controls style={{ maxWidth: '100%', width: '220px' }} />
                       ) : (
-                        <a href={msg.fileUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', background: 'rgba(0,0,0,0.1)', borderRadius: '8px', color: 'inherit', textDecoration: 'none' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', background: 'rgba(0,0,0,0.1)', borderRadius: '8px', color: 'inherit' }}>
                           📄 {msg.fileName}
-                        </a>
+                        </div>
                       )}
+                      <a 
+                        href={msg.fileUrl} 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', color: isMine ? 'white' : '#1976d2', textDecoration: 'none', alignSelf: 'flex-start', padding: '6px 12px', background: isMine ? 'rgba(0,0,0,0.2)' : 'rgba(25, 118, 210, 0.1)', borderRadius: '6px', fontWeight: 'bold' }}
+                      >
+                        ⬇️ Descargar {msg.fileType?.startsWith('image/') ? 'Imagen' : msg.fileType?.startsWith('video/') ? 'Video' : 'Archivo'}
+                      </a>
                     </div>
                   )}
                 </div>
