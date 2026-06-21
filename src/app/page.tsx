@@ -1674,7 +1674,7 @@ function AIAssistantView({ onClose }: { onClose: () => void }) {
   const [messages, setMessages] = useState<{ id: string; role: 'user' | 'model'; text: string; imageUrl?: string }[]>([]);
   const [inputMessage, setInputMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedModel, setSelectedModel] = useState<'flash' | 'pro'>('pro');
+  const [selectedModel, setSelectedModel] = useState<'flash' | 'pro' | 'banana'>('pro');
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -1764,11 +1764,12 @@ function AIAssistantView({ onClose }: { onClose: () => void }) {
             <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
               <select 
                 value={selectedModel} 
-                onChange={(e) => setSelectedModel(e.target.value as 'flash' | 'pro')}
+                onChange={(e) => setSelectedModel(e.target.value as 'flash' | 'pro' | 'banana')}
                 style={{ fontSize: '0.8rem', padding: '2px 8px', borderRadius: '12px', border: 'none', background: 'rgba(255,255,255,0.2)', color: 'white', outline: 'none' }}
               >
                 <option value="flash" style={{ color: 'black' }}>⚡ Gemini Flash</option>
                 <option value="pro" style={{ color: 'black' }}>🧠 Gemini Pro</option>
+                <option value="banana" style={{ color: 'black' }}>🍌 Nano Banana</option>
               </select>
             </div>
           </div>

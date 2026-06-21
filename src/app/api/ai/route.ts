@@ -9,8 +9,10 @@ export async function POST(req: Request) {
 
     const { message, history = [], model: modelType, imageBase64, imageMimeType } = await req.json();
     
-    // Selección de modelo (por defecto Pro, como solicitó el usuario)
-    const selectedModel = modelType === 'flash' ? 'gemini-1.5-flash-latest' : 'gemini-1.5-pro-latest';
+    // Selección de modelo (generación 2026)
+    let selectedModel = 'gemini-2.5-pro';
+    if (modelType === 'flash') selectedModel = 'gemini-2.5-flash';
+    if (modelType === 'banana') selectedModel = 'nano-banana-pro-preview';
     
     const genAI = new GoogleGenerativeAI(apiKey.trim().replace(/^"|"$|^'|'$/g, ''));
     
