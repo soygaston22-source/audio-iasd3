@@ -9,16 +9,44 @@ export async function POST(req: Request) {
 
     const { message, history = [], model: modelType, imageBase64, imageMimeType } = await req.json();
     
-    // Selección de modelo (generación 2026)
-    let selectedModel = 'gemini-2.5-pro';
-    if (modelType === 'flash') selectedModel = 'gemini-2.5-flash';
-    if (modelType === 'banana') selectedModel = 'nano-banana-pro-preview';
+    // Obtener la lista de modelos permitidos para esta API Key específica
+    let availableModels: string[] = [];
+    try {
+      const listResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey.trim().replace(/^"|"$|^'|'$/g, '')}`);
+      const listData = await listResponse.json();
+      if (listData.models) {
+        availableModels = listData.models.map((m: any) => m.name.replace('models/', ''));
+      }
+    } catch (e) {
+      console.error("Error fetching models list", e);
+    }
+
+    // Función auxiliar para elegir el mejor modelo disponible
+    const findBestModel = (preferences: string[]) => {
+      for (const pref of preferences) {
+        if (availableModels.includes(pref)) return pref;
+      }
+      // Si no encuentra ninguno preferido pero hay modelos, usa el primero que contenga 'flash' o el primero absoluto.
+      const anyFlash = availableModels.find(m => m.includes('flash'));
+      return anyFlash || availableModels[0] || 'gemini-1.5-flash';
+    };
+
+    let selectedModel = 'gemini-1.5-flash';
+    if (availableModels.length > 0) {
+      if (modelType === 'flash') {
+        selectedModel = findBestModel(['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash-latest', 'gemini-1.5-flash']);
+      } else if (modelType === 'pro') {
+        selectedModel = findBestModel(['gemini-2.5-pro', 'gemini-1.5-pro-latest', 'gemini-1.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash']);
+      } else if (modelType === 'banana') {
+        selectedModel = findBestModel(['nano-banana-pro-preview', 'gemini-3-pro-preview', 'gemini-2.5-pro']);
+      }
+    }
     
     const genAI = new GoogleGenerativeAI(apiKey.trim().replace(/^"|"$|^'|'$/g, ''));
     
     const systemInstruction = "Eres un asistente virtual amigable y experto para la aplicación 'Audio IASD'. Ayudas a los usuarios del departamento de audio de la iglesia con sus dudas técnicas, turnos de la semana y analizando cualquier documento o foto que te envíen. Sé cálido, conciso y útil.";
 
-    // Inicializar modelo con instrucciones de sistema
+    // Inicializar modelo
     const model = genAI.getGenerativeModel({ 
       model: selectedModel,
       systemInstruction: {
@@ -61,21 +89,6 @@ export async function POST(req: Request) {
     } catch (error: any) {
       console.error("Error en IA:", error);
       let errorMessage = error.message || "Error procesando la petición a la IA";
-      
-      // Auto-diagnóstico si el modelo no existe (404)
-      if (errorMessage.includes("404") || errorMessage.includes("not found")) {
-        try {
-          const listResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${process.env.GEMINI_API_KEY?.trim().replace(/^"|"$|^'|'$/g, '')}`);
-          const listData = await listResponse.json();
-          if (listData.models) {
-            const availableModels = listData.models.map((m: any) => m.name.replace('models/', '')).join(', ');
-            errorMessage = `El modelo '${errorMessage.match(/models\/([^:]+)/)?.[1] || 'especificado'}' no está habilitado para tu API Key. Modelos disponibles para ti: ${availableModels}`;
-          }
-        } catch (e) {
-          // Si falla el auto-diagnóstico, no hacemos nada, dejamos el error original
-        }
-      }
-
       return new Response(JSON.stringify({ error: errorMessage }), { status: 500, headers: { 'Content-Type': 'application/json' } });
     }
 }
