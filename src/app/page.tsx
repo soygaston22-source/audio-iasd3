@@ -317,7 +317,7 @@ export default function Home() {
     addLog(`✅ ${currentUser.name} ha confirmado su asistencia para este sábado.`);
     alert("¡Asistencia confirmada!");
     if (confirm("¿Deseas avisar de tu asistencia al grupo de WhatsApp?")) {
-      window.location.href = `https://api.whatsapp.com/send?text=${encodeURIComponent(`✅ ¡Hola! Soy ${currentUser.name} y he confirmado mi asistencia para mi turno de este sábado en la App de Audio IASD.`)}`;
+      window.location.href = `whatsapp://send?text=${encodeURIComponent(`✅ ¡Hola! Soy ${currentUser.name} y he confirmado mi asistencia para mi turno de este sábado en la App de Audio IASD.`)}`;
     }
   };
 
@@ -327,7 +327,7 @@ export default function Home() {
     addLog(`🔄 ${currentUser.name} ha solicitado un cambio de turno para esta semana.`);
     alert("Notificación enviada al Administrador. Quedará registrado.");
     if (confirm("¿Deseas avisar al grupo de WhatsApp que necesitas un reemplazo urgente?")) {
-      window.location.href = `https://api.whatsapp.com/send?text=${encodeURIComponent(`⚠️ ¡Hola chicos! Soy ${currentUser.name}. Necesito un reemplazo urgente para mi turno de este sábado. Por favor revisen la App de Audio IASD.`)}`;
+      window.location.href = `whatsapp://send?text=${encodeURIComponent(`⚠️ ¡Hola chicos! Soy ${currentUser.name}. Necesito un reemplazo urgente para mi turno de este sábado. Por favor revisen la App de Audio IASD.`)}`;
     }
   };
 
@@ -351,7 +351,7 @@ export default function Home() {
       alert(`¡Propuesta enviada a ${targetUser}! Cuando él inicie sesión podrá aceptarla o rechazarla.`);
       sendPushNotification(targetUser, "¡Propuesta de Trueque!", `${currentUser.name} te propone cambiar turnos.`);
       if (confirm(`¿Deseas avisarle de tu propuesta por WhatsApp? (Puedes mandarlo al grupo o a su chat personal)`)) {
-        window.location.href = `https://api.whatsapp.com/send?text=${encodeURIComponent(`🤝 ¡Hola ${targetUser}! Te he enviado una propuesta de trueque de turnos en la App de Audio IASD. Te ofrezco mi turno del ${formatDate(shiftDate)} a cambio de tu turno del ${formatDate(targetDate)}. ¡Entra a la App para aceptarla o rechazarla!`)}`;
+        window.location.href = `whatsapp://send?text=${encodeURIComponent(`🤝 ¡Hola ${targetUser}! Te he enviado una propuesta de trueque de turnos en la App de Audio IASD. Te ofrezco mi turno del ${formatDate(shiftDate)} a cambio de tu turno del ${formatDate(targetDate)}. ¡Entra a la App para aceptarla o rechazarla!`)}`;
       }
     }
   };
@@ -380,7 +380,7 @@ export default function Home() {
     alert("¡Intercambio realizado! El calendario de todos ha sido actualizado mágicamente.");
     sendPushNotification(swap.fromUser, "Trueque Aceptado", `${swap.toUser} ha aceptado tu propuesta de cambio de turno.`);
     if (confirm(`¿Deseas avisarle por WhatsApp a ${swap.fromUser} que has aceptado el trueque?`)) {
-      window.location.href = `https://api.whatsapp.com/send?text=${encodeURIComponent(`✅ ¡Hola ${swap.fromUser}! Ya he aceptado tu propuesta de trueque en la App de Audio IASD. ¡El calendario ya está actualizado automáticamente! Trato hecho.`)}`;
+      window.location.href = `whatsapp://send?text=${encodeURIComponent(`✅ ¡Hola ${swap.fromUser}! Ya he aceptado tu propuesta de trueque en la App de Audio IASD. ¡El calendario ya está actualizado automáticamente! Trato hecho.`)}`;
     }
   };
 
