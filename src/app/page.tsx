@@ -78,6 +78,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<UserState | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
   
   // App state
   const [currentDate] = useState(new Date());
@@ -563,6 +564,10 @@ export default function Home() {
     return <ChatView currentUser={currentUser} unreadCounts={currentUserUnreads} onClose={() => setChatOpen(false)} />;
   }
 
+  if (aiOpen && currentUser) {
+    return <AIAssistantView onClose={() => setAiOpen(false)} />;
+  }
+
   return (
     <>
       <header className="app-bar">
@@ -600,6 +605,32 @@ export default function Home() {
           </button>
         </div>
       </header>
+
+      {/* Botón flotante IA */}
+      <button 
+        onClick={() => setAiOpen(true)}
+        style={{
+          position: 'fixed',
+          bottom: '80px',
+          right: '20px',
+          width: '60px',
+          height: '60px',
+          borderRadius: '30px',
+          backgroundColor: '#4285F4',
+          color: 'white',
+          border: 'none',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          fontSize: '2rem',
+          cursor: 'pointer',
+          zIndex: 1000
+        }}
+        title="Asistente IA"
+      >
+        ✨
+      </button>
 
       <main className="content">
         {currentUser.role === "USER" && schedule && (
@@ -1639,3 +1670,177 @@ function ChatView({ currentUser, unreadCounts, onClose }: { currentUser: UserSta
   );
 }
 
+function AIAssistantView({ onClose }: { onClose: () => void }) {
+  const [messages, setMessages] = useState<{ id: string; role: 'user' | 'model'; text: string; imageUrl?: string }[]>([]);
+  const [inputMessage, setInputMessage] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [selectedModel, setSelectedModel] = useState<'flash' | 'pro'>('pro');
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isLoading]);
+
+  const convertFileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = error => reject(error);
+    });
+  };
+
+  const handleSend = async (e?: React.FormEvent, file?: File) => {
+    e?.preventDefault();
+    if (!inputMessage.trim() && !file) return;
+
+    let imageBase64 = undefined;
+    let imageMimeType = undefined;
+    let imageUrl = undefined;
+
+    if (file) {
+      if (!file.type.startsWith('image/')) {
+        alert('Por ahora la IA solo soporta imágenes.');
+        return;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        alert('La imagen es muy grande (máx 5MB).');
+        return;
+      }
+      imageBase64 = await convertFileToBase64(file);
+      imageMimeType = file.type;
+      imageUrl = URL.createObjectURL(file);
+    }
+
+    const currentMsg = inputMessage;
+    setInputMessage("");
+    setIsLoading(true);
+
+    const newUserMsg = { id: Date.now().toString(), role: 'user' as const, text: currentMsg, imageUrl };
+    setMessages(prev => [...prev, newUserMsg]);
+
+    try {
+      const response = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: currentMsg,
+          history: messages,
+          model: selectedModel,
+          imageBase64,
+          imageMimeType
+        })
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Error en IA');
+
+      setMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: data.text }]);
+    } catch (error: any) {
+      setMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: `❌ Error: ${error.message}` }]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      handleSend(undefined, file);
+    }
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  return (
+    <div className="chat-modal">
+      <div className="chat-header" style={{ background: '#4285F4' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'white', fontSize: '1.2rem', cursor: 'pointer' }}>
+            ←
+          </button>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <h2 style={{ margin: 0, fontSize: '1.2rem', color: 'white' }}>Asistente IA</h2>
+            <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+              <select 
+                value={selectedModel} 
+                onChange={(e) => setSelectedModel(e.target.value as 'flash' | 'pro')}
+                style={{ fontSize: '0.8rem', padding: '2px 8px', borderRadius: '12px', border: 'none', background: 'rgba(255,255,255,0.2)', color: 'white', outline: 'none' }}
+              >
+                <option value="flash" style={{ color: 'black' }}>⚡ Gemini Flash</option>
+                <option value="pro" style={{ color: 'black' }}>🧠 Gemini Pro</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="chat-messages" style={{ display: 'flex', flexDirection: 'column' }}>
+        {messages.length === 0 && (
+          <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: '2rem' }}>
+            <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>✨</div>
+            <h3>¡Hola! Soy la Inteligencia Artificial de Google.</h3>
+            <p style={{ marginTop: '0.5rem' }}>Puedo ayudarte con preguntas, analizar cronogramas en imágenes o darte soporte técnico.</p>
+          </div>
+        )}
+        
+        {messages.map(msg => {
+          const isUser = msg.role === 'user';
+          return (
+            <div key={msg.id} style={{ display: 'flex', flexDirection: 'column', alignItems: isUser ? 'flex-end' : 'flex-start', marginBottom: '16px' }}>
+              <div style={{ 
+                maxWidth: '85%', 
+                padding: '12px 16px', 
+                borderRadius: isUser ? '16px 16px 0 16px' : '16px 16px 16px 0',
+                background: isUser ? '#4285F4' : 'var(--glass-bg)',
+                color: isUser ? 'white' : 'var(--glass-text)',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                border: isUser ? 'none' : '1px solid var(--glass-border)'
+              }}>
+                {msg.imageUrl && (
+                  <img src={msg.imageUrl} alt="Subida" style={{ maxWidth: '100%', borderRadius: '8px', marginBottom: '8px' }} />
+                )}
+                {msg.text && <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: '0.95rem' }}>{msg.text}</div>}
+              </div>
+            </div>
+          );
+        })}
+        {isLoading && (
+          <div style={{ alignSelf: 'flex-start', padding: '12px', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+            Pensando... ✨
+          </div>
+        )}
+        <div ref={chatEndRef} />
+      </div>
+
+      <form onSubmit={handleSend} className="chat-input-area">
+        <input 
+          type="file" 
+          accept="image/*"
+          ref={fileInputRef} 
+          style={{ display: 'none' }} 
+          onChange={handleFileSelect} 
+        />
+        <button 
+          type="button" 
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isLoading}
+          style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', padding: '0 8px', opacity: isLoading ? 0.5 : 1 }}
+        >
+          📎
+        </button>
+        <input 
+          type="text" 
+          value={inputMessage}
+          onChange={(e) => setInputMessage(e.target.value)}
+          placeholder="Pregúntame algo..."
+          disabled={isLoading}
+          style={{ flex: 1, padding: '12px', borderRadius: '20px', border: '1px solid var(--glass-border)', background: 'var(--glass-bg)', color: 'var(--glass-text)', fontSize: '1rem' }}
+        />
+        <button type="submit" disabled={isLoading || (!inputMessage.trim() && !fileInputRef.current?.files?.length)} style={{ background: '#4285F4', color: 'white', border: 'none', borderRadius: '20px', padding: '0 20px', fontWeight: 'bold', cursor: 'pointer', opacity: (isLoading || (!inputMessage.trim() && !fileInputRef.current?.files?.length)) ? 0.5 : 1 }}>
+          Enviar
+        </button>
+      </form>
+    </div>
+  );
+}
