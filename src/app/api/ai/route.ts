@@ -56,8 +56,24 @@ export async function POST(req: Request) {
     return new Response(JSON.stringify({ text: responseText }), {
       headers: { 'Content-Type': 'application/json' },
     });
-  } catch (error: any) {
-    console.error("Error en IA:", error);
-    return new Response(JSON.stringify({ error: error.message || "Error procesando la petición a la IA" }), { status: 500, headers: { 'Content-Type': 'application/json' } });
-  }
+    } catch (error: any) {
+      console.error("Error en IA:", error);
+      let errorMessage = error.message || "Error procesando la petición a la IA";
+      
+      // Auto-diagnóstico si el modelo no existe (404)
+      if (errorMessage.includes("404") || errorMessage.includes("not found")) {
+        try {
+          const listResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${process.env.GEMINI_API_KEY?.trim().replace(/^"|"$|^'|'$/g, '')}`);
+          const listData = await listResponse.json();
+          if (listData.models) {
+            const availableModels = listData.models.map((m: any) => m.name.replace('models/', '')).join(', ');
+            errorMessage = `El modelo '${errorMessage.match(/models\/([^:]+)/)?.[1] || 'especificado'}' no está habilitado para tu API Key. Modelos disponibles para ti: ${availableModels}`;
+          }
+        } catch (e) {
+          // Si falla el auto-diagnóstico, no hacemos nada, dejamos el error original
+        }
+      }
+
+      return new Response(JSON.stringify({ error: errorMessage }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    }
 }
