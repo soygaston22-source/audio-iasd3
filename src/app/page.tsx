@@ -28,6 +28,11 @@ export interface Announcement {
   fileName?: string | null;
   fileType?: string | null;
   timestamp: any;
+  type?: string;
+  gridData?: {
+    title: string;
+    rows: { date: string, morning: string, afternoon: string }[];
+  };
   author: string;
 }
 
@@ -1121,6 +1126,51 @@ function AdminView({ schedule, statuses, activityLog, resetRequests, futureReque
   const [newsTitle, setNewsTitle] = useState("");
   const [newsText, setNewsText] = useState("");
   const [newsFile, setNewsFile] = useState<File | null>(null);
+
+  const [aiAdminPrompt, setAiAdminPrompt] = useState("");
+  const [aiAdminLoading, setAiAdminLoading] = useState(false);
+  const [aiAdminResult, setAiAdminResult] = useState<any>(null);
+
+  const handleAdminAI = async () => {
+    if (!aiAdminPrompt.trim()) return;
+    setAiAdminLoading(true);
+    setAiAdminResult(null);
+    try {
+      const res = await fetch('/api/ai_admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: aiAdminPrompt })
+      });
+      const data = await res.json();
+      if (data.response) {
+        setAiAdminResult(JSON.parse(data.response));
+      } else {
+        alert("Error de la IA: " + data.error);
+      }
+    } catch (e: any) {
+      alert("Error en AI Admin: " + e.message);
+    } finally {
+      setAiAdminLoading(false);
+    }
+  };
+
+  const handlePublishGrid = async () => {
+    if (!aiAdminResult) return;
+    try {
+      await addDoc(collection(db, "announcements"), {
+        text: "Nuevo cronograma publicado",
+        type: "schedule_grid",
+        gridData: aiAdminResult,
+        timestamp: serverTimestamp(),
+        author: "Administrador (IA)"
+      });
+      alert("Cronograma publicado con éxito en Novedades.");
+      setAiAdminResult(null);
+      setAiAdminPrompt("");
+    } catch (e: any) {
+      alert("Error al publicar cronograma: " + e.message);
+    }
+  };
   const [isUploadingNews, setIsUploadingNews] = useState(false);
   const newsFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -1478,7 +1528,10 @@ alert("Error al publicar: " + err.message);
       {renderShift("Tarde", schedule.afternoon)}
 
       <div style={{ marginTop: '2rem' }}>
-        <h3 style={{ borderBottom: '2px solid var(--glass-border)', paddingBottom: '8px', marginBottom: '16px' }}>Registro de Actividad</h3>
+        <details style={{ marginBottom: "1rem" }}>
+          <summary style={{ cursor: 'pointer', fontSize: '1.2rem', fontWeight: 'bold', paddingBottom: '8px', borderBottom: '2px solid var(--glass-border)', marginBottom: '16px' }}>
+            Historial de Cambios (Clic para expandir)
+          </summary>
         {activityLog.length === 0 ? (
           <p style={{ color: 'var(--text-muted)', textAlign: 'center', fontStyle: 'italic' }}>No hay actividad reciente.</p>
         ) : (
@@ -1491,6 +1544,7 @@ alert("Error al publicar: " + err.message);
             ))}
           </div>
         )}
+        </details>
       </div>
 
       <div style={{ marginTop: '2rem', padding: '20px', background: 'rgba(255, 0, 0, 0.1)', border: '1px solid rgba(255, 0, 0, 0.3)', borderRadius: '12px' }}>
