@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
-import { getScheduleForDate, TEAM, getAllFutureShiftsForUser, formatDate, ApprovedSwap } from "@/lib/rotation";
+import { getScheduleForDate, TEAM, getAllFutureShiftsForUser, formatDate, ApprovedSwap, Unavailability } from "@/lib/rotation";
 import { db, storage } from "@/lib/firebase";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { collection, doc, onSnapshot, setDoc, query, orderBy, limit, addDoc, serverTimestamp, getDoc, deleteDoc, increment, where, getDocs, updateDoc } from "firebase/firestore";
@@ -122,6 +122,7 @@ export default function Home() {
   const [youtubeLiveUrl, setYoutubeLiveUrl] = useState<string>("");
   const [instagramPostUrl, setInstagramPostUrl] = useState<string>("");
   const [instagramProfileUrl, setInstagramProfileUrl] = useState<string>("");
+  const [unavailabilities, setUnavailabilities] = useState<Unavailability[]>([]);
 
   const addLog = async (action: string) => {
     try {
@@ -150,9 +151,10 @@ export default function Home() {
         if (data.youtubeLiveUrl !== undefined) setYoutubeLiveUrl(data.youtubeLiveUrl);
         if (data.instagramPostUrl !== undefined) setInstagramPostUrl(data.instagramPostUrl);
         if (data.instagramProfileUrl !== undefined) setInstagramProfileUrl(data.instagramProfileUrl);
+        if (data.unavailabilities !== undefined) setUnavailabilities(data.unavailabilities);
       } else {
         // Init global state if not exists
-        const sched = getScheduleForDate(new Date(), [], 0);
+        const sched = getScheduleForDate(new Date(), [], 0, []);
         setDoc(doc(db, "app_state", "global"), {
           schedule: sched,
           resetRequests: [],
@@ -161,6 +163,7 @@ export default function Home() {
           pendingSwaps: [],
           approvedSwaps: [],
           seedOffset: 0,
+          unavailabilities: [],
           youtubeLiveUrl: ""
         });
         setSchedule(sched);
@@ -673,6 +676,7 @@ export default function Home() {
       <main className="content">
         {currentUser.role === "USER" && schedule && (
           <UserView 
+            unavailabilities={unavailabilities}
             instagramPostUrl={instagramPostUrl}
             instagramProfileUrl={instagramProfileUrl}
             specialShifts={specialShifts}
@@ -716,6 +720,15 @@ export default function Home() {
             onUpdateYoutubeLive={handleUpdateYoutubeLive}
             instagramPostUrl={instagramPostUrl}
             instagramProfileUrl={instagramProfileUrl}
+            unavailabilities={unavailabilities}
+            onAddUnavailability={async (date, user) => {
+              const newU = [...unavailabilities, { date, user }];
+              await setDoc(doc(db, "app_state", "global"), { unavailabilities: newU }, { merge: true });
+            }}
+            onRemoveUnavailability={async (date, user) => {
+              const newU = unavailabilities.filter(u => !(u.date === date && u.user === user));
+              await setDoc(doc(db, "app_state", "global"), { unavailabilities: newU }, { merge: true });
+            }}
             onUpdateInstagramInfo={async (post, profile) => {
               await setDoc(doc(db, "app_state", "global"), { instagramPostUrl: post, instagramProfileUrl: profile }, { merge: true });
               alert("Información de Instagram actualizada.");
@@ -748,15 +761,15 @@ export default function Home() {
   );
 }
 
-function UserView({ currentDate, schedule, userName, status, notifications, pendingSwaps, approvedSwaps, specialShifts, seedOffset, announcements, instagramPostUrl, instagramProfileUrl, onConfirm, onIssue, onFutureIssue, onChangePassword, onClearNotifications, onAcceptSwap, onRejectSwap }: { 
+function UserView({ currentDate, schedule, userName, status, notifications, pendingSwaps, approvedSwaps, specialShifts, seedOffset, announcements, instagramPostUrl, instagramProfileUrl, unavailabilities, onConfirm, onIssue, onFutureIssue, onChangePassword, onClearNotifications, onAcceptSwap, onRejectSwap }: { 
   currentDate: Date, schedule: any, userName: string, status: Status, notifications: string[], pendingSwaps: PendingSwap[], approvedSwaps: ApprovedSwap[], specialShifts: SpecialShift[], seedOffset: number, announcements: Announcement[],
   instagramPostUrl: string,
-  instagramProfileUrl: string, onConfirm: () => void, onIssue: () => void, onFutureIssue: (date: string, shift: string, targetUser: string, targetDate: string, targetShift: string) => void, onChangePassword: () => void, onClearNotifications: () => void, onAcceptSwap: (swap: PendingSwap) => void, onRejectSwap: (swap: PendingSwap) => void
+  instagramProfileUrl: string, unavailabilities: Unavailability[], onConfirm: () => void, onIssue: () => void, onFutureIssue: (date: string, shift: string, targetUser: string, targetDate: string, targetShift: string) => void, onChangePassword: () => void, onClearNotifications: () => void, onAcceptSwap: (swap: PendingSwap) => void, onRejectSwap: (swap: PendingSwap) => void
 }) {
   const isSunday = currentDate.getDay() === 0;
   const searchFrom = isSunday ? new Date(currentDate.getTime() + 86400000) : currentDate;
   
-  const futureShifts = getAllFutureShiftsForUser(userName, searchFrom, 5, approvedSwaps, seedOffset);
+  const futureShifts = getAllFutureShiftsForUser(userName, searchFrom, 5, approvedSwaps, seedOffset, unavailabilities);
   
   const [swapModalState, setSwapModalState] = useState<{
     shiftDate: string;
@@ -845,7 +858,7 @@ function UserView({ currentDate, schedule, userName, status, notifications, pend
                       className="btn btn-outline"
                       style={{ padding: '10px' }}
                       onClick={() => {
-                        const shifts = getAllFutureShiftsForUser(member, searchFrom, 5, approvedSwaps, seedOffset);
+                        const shifts = getAllFutureShiftsForUser(member, searchFrom, 5, approvedSwaps, seedOffset, unavailabilities);
                         setSwapModalState({ ...swapModalState, targetUser: member, targetShifts: shifts });
                       }}
                     >
@@ -1057,6 +1070,18 @@ function UserView({ currentDate, schedule, userName, status, notifications, pend
         </div>
       )}
 
+            {/* Bible Button */}
+      <div style={{ marginBottom: '1.5rem' }}>
+        <a 
+          href="https://www.bible.com/es/bible/149/GEN.1.RVR1960"
+          target="_blank" rel="noopener noreferrer"
+          className="btn"
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: '#3f51b5', color: 'white', border: 'none', fontWeight: 'bold', padding: '16px', borderRadius: '12px', fontSize: '1.1rem', boxShadow: '0 4px 12px rgba(63, 81, 181, 0.4)' }}
+        >
+          📖 Abrir Biblia (RVR1960)
+        </a>
+      </div>
+
       {/* Sección de Novedades */}
       <div style={{ marginTop: '24px' }}>
         <h4 style={{ marginBottom: '16px', fontSize: '1.2rem', color: 'var(--primary-red)' }}>📢 Novedades y Avisos</h4>
@@ -1120,9 +1145,9 @@ function UserView({ currentDate, schedule, userName, status, notifications, pend
   );
 }
 
-function AdminView({ schedule, statuses, activityLog, resetRequests, futureRequests, approvedSwaps, specialShifts, announcements, onChangeAssignment, onRejectAssignment, onResetPassword, onDismissFutureRequest, onRejectFutureRequest, onRandomReassign, onDeleteAnnouncement, youtubeLiveUrl, onUpdateYoutubeLive, instagramPostUrl, instagramProfileUrl, onUpdateInstagramInfo }: { 
+function AdminView({ schedule, statuses, activityLog, resetRequests, futureRequests, approvedSwaps, specialShifts, announcements, onChangeAssignment, onRejectAssignment, onResetPassword, onDismissFutureRequest, onRejectFutureRequest, onRandomReassign, onDeleteAnnouncement, youtubeLiveUrl, onUpdateYoutubeLive, instagramPostUrl, instagramProfileUrl, onUpdateInstagramInfo, unavailabilities, onAddUnavailability, onRemoveUnavailability }: { 
   schedule: any, statuses: Record<string, Status>, activityLog: ActivityEntry[], resetRequests: string[], futureRequests: FutureChangeRequest[], approvedSwaps: ApprovedSwap[], specialShifts: SpecialShift[], announcements: Announcement[], onChangeAssignment: (member: string) => void, onRejectAssignment: (member: string) => void, onResetPassword: (member: string) => void, onDismissFutureRequest: (id: string) => void, onRejectFutureRequest: (req: FutureChangeRequest) => void, onRandomReassign: () => void, onDeleteAnnouncement: (id: string) => void, youtubeLiveUrl?: string, onUpdateYoutubeLive?: (url: string) => void,
-  instagramPostUrl?: string, instagramProfileUrl?: string, onUpdateInstagramInfo?: (postUrl: string, profileUrl: string) => void
+  instagramPostUrl?: string, instagramProfileUrl?: string, onUpdateInstagramInfo?: (postUrl: string, profileUrl: string) => void, unavailabilities?: Unavailability[], onAddUnavailability?: (date: string, user: string) => void, onRemoveUnavailability?: (date: string, user: string) => void
 }) {
   
   const [specialShiftTitle, setSpecialShiftTitle] = useState("");
@@ -1638,6 +1663,56 @@ alert("Error al publicar: " + err.message);
             Guardar Configuración de Instagram
           </button>
         </div>
+      </div>
+
+            {/* Inasistencias */}
+      <div style={{ marginTop: '2rem', padding: '20px', background: 'rgba(255, 152, 0, 0.1)', border: '1px solid rgba(255, 152, 0, 0.3)', borderRadius: '12px' }}>
+        <h3 style={{ color: '#ff9800', marginBottom: '16px' }}>🚫 Registrar Inasistencia</h3>
+        <p style={{ color: 'var(--glass-text)', marginBottom: '16px', fontSize: '0.9rem' }}>
+          Selecciona un usuario y la fecha (Sábado) en la que no podrá asistir. El sistema lo excluirá automáticamente de la rotación para ese día.
+        </p>
+        
+        <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap' }}>
+          <select id="unavail-user" className="input" style={{ flex: 1, minWidth: '150px' }}>
+            {TEAM.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+          <input id="unavail-date" type="date" className="input" style={{ flex: 1, minWidth: '150px' }} />
+          <button 
+            className="btn btn-primary"
+            style={{ backgroundColor: '#ff9800', color: 'black' }}
+            onClick={() => {
+              const uEl = document.getElementById('unavail-user') as HTMLSelectElement;
+              const dEl = document.getElementById('unavail-date') as HTMLInputElement;
+              if (uEl && dEl && dEl.value) {
+                if (onAddUnavailability) onAddUnavailability(dEl.value, uEl.value);
+                dEl.value = "";
+              } else {
+                alert("Selecciona fecha y usuario");
+              }
+            }}
+          >
+            Registrar
+          </button>
+        </div>
+
+        {unavailabilities && unavailabilities.length > 0 && (
+          <div style={{ marginTop: '16px' }}>
+            <h4 style={{ color: 'var(--glass-text)', marginBottom: '8px' }}>Inasistencias Registradas:</h4>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {unavailabilities.map((u, idx) => (
+                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,0,0,0.2)', padding: '10px', borderRadius: '8px' }}>
+                  <span><strong style={{ color: '#ff9800' }}>{u.user}</strong> no asiste el <strong>{formatDate(u.date)}</strong></span>
+                  <button 
+                    onClick={() => onRemoveUnavailability && onRemoveUnavailability(u.date, u.user)}
+                    style={{ background: 'none', border: 'none', color: '#d32f2f', cursor: 'pointer', fontSize: '1.2rem' }}
+                  >
+                    ✖
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       <div style={{ marginTop: '2rem', padding: '20px', background: 'rgba(211,47,47,0.1)', border: '1px solid rgba(211,47,47,0.3)', borderRadius: '12px' }}>

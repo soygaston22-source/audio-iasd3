@@ -32,7 +32,12 @@ export function getWeekNumber(d: Date): { weekNo: number; year: number } {
   return { weekNo, year: date.getUTCFullYear() };
 }
 
-export function getScheduleForDate(date: Date, approvedSwaps: ApprovedSwap[] = [], seedOffset: number = 0) {
+export interface Unavailability {
+  date: string;
+  user: string;
+}
+
+export function getScheduleForDate(date: Date, approvedSwaps: ApprovedSwap[] = [], seedOffset: number = 0, unavailabilities: Unavailability[] = []) {
   const { weekNo, year } = getWeekNumber(date);
   
   // Calculate exact date of the Saturday for this week
@@ -48,21 +53,39 @@ export function getScheduleForDate(date: Date, approvedSwaps: ApprovedSwap[] = [
   // We need to pick 4 people for the weekend. 2 morning, 2 afternoon.
   // Rule: Santiago must be in afternoon.
   
-  let available = TEAM.filter(m => m !== "Santiago");
+  let available = TEAM.filter(m => {
+    const isUnavailable = unavailabilities.some(u => u.date === scheduleDate && u.user === m);
+    return !isUnavailable && m !== "Santiago";
+  });
   
   // Sort available pseudo-randomly
   available = available.sort((a, b) => {
     return seededRandom(baseSeed + a.charCodeAt(0)) - 0.5;
   });
   
-  let morning = [available[0], available[1]];
+  let morning: string[] = [];
+  if (available.length >= 2) {
+    morning = [available[0], available[1]];
+  } else {
+    // Fallback if not enough people
+    morning = available.slice(0, 2);
+  }
   
-  // Santiago goes to afternoon, plus one more random person
-  let afternoon = ["Santiago", available[2]];
+  let afternoon: string[] = [];
+  const santiagoUnavailable = unavailabilities.some(u => u.date === scheduleDate && u.user === "Santiago");
   
-  // Optionally shuffle afternoon so Santiago is not always first
-  if (seededRandom(baseSeed + 999) > 0.5) {
-    afternoon = [available[2], "Santiago"];
+  if (santiagoUnavailable) {
+    // If Santiago is unavailable, we need two normal people for afternoon
+    afternoon = available.slice(2, 4);
+  } else {
+    // Santiago goes to afternoon, plus one more random person
+    const secondPerson = available.length > 2 ? available[2] : (available[0] || "Nadie");
+    afternoon = ["Santiago", secondPerson];
+    
+    // Optionally shuffle afternoon so Santiago is not always first
+    if (seededRandom(baseSeed + 999) > 0.5) {
+      afternoon = [secondPerson, "Santiago"];
+    }
   }
 
   // Apply approved swaps overrides
@@ -104,13 +127,13 @@ export function formatDate(dateStr: string | Date): string {
   return formatted.charAt(0).toUpperCase() + formatted.slice(1);
 }
 
-export function getAllFutureShiftsForUser(userName: string, fromDate: Date = new Date(), limit: number = 5, approvedSwaps: ApprovedSwap[] = [], seedOffset: number = 0) {
+export function getAllFutureShiftsForUser(userName: string, fromDate: Date = new Date(), limit: number = 5, approvedSwaps: ApprovedSwap[] = [], seedOffset: number = 0, unavailabilities: Unavailability[] = []) {
   let searchDate = new Date(fromDate);
   const shifts = [];
   
   // Search up to 2 years ahead if necessary
   for (let i = 0; i < 104; i++) { 
-    const sched = getScheduleForDate(searchDate, approvedSwaps, seedOffset);
+    const sched = getScheduleForDate(searchDate, approvedSwaps, seedOffset, unavailabilities);
     if (sched.morning.includes(userName)) {
       shifts.push({ shift: "Mañana", date: sched.date });
     } else if (sched.afternoon.includes(userName)) {
