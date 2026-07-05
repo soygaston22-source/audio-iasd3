@@ -1561,6 +1561,46 @@ alert("Error al publicar: " + err.message);
         </div>
       </div>
 
+      <div style={{ marginTop: '2rem', padding: '20px', background: 'rgba(225, 48, 108, 0.1)', border: '1px solid rgba(225, 48, 108, 0.3)', borderRadius: '12px' }}>
+        <h3 style={{ color: '#e1306c', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          📸 Integración con Instagram
+        </h3>
+        <p style={{ color: 'var(--glass-text)', marginBottom: '12px', fontSize: '0.9rem' }}>
+          Copia el enlace de una Publicación o Reel para incrustarlo, y el enlace de la cuenta (ej. https://instagram.com/tuiglesia) para el botón de Historias.
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <input 
+            id="instagram-post-input"
+            type="text" 
+            placeholder="URL de la Publicación o Reel" 
+            defaultValue={instagramPostUrl || ""}
+            className="input" 
+            style={{ padding: '12px', borderRadius: '8px', border: '1px solid var(--glass-border)', background: 'rgba(0,0,0,0.05)', color: 'var(--glass-text)', fontSize: '1rem' }}
+          />
+          <input 
+            id="instagram-profile-input"
+            type="text" 
+            placeholder="URL del Perfil (para Historias)" 
+            defaultValue={instagramProfileUrl || ""}
+            className="input" 
+            style={{ padding: '12px', borderRadius: '8px', border: '1px solid var(--glass-border)', background: 'rgba(0,0,0,0.05)', color: 'var(--glass-text)', fontSize: '1rem' }}
+          />
+          <button 
+            onClick={() => {
+              const postEl = document.getElementById("instagram-post-input") as HTMLInputElement;
+              const profEl = document.getElementById("instagram-profile-input") as HTMLInputElement;
+              if (postEl && profEl && onUpdateInstagramInfo) {
+                onUpdateInstagramInfo(postEl.value, profEl.value);
+              }
+            }}
+            className="btn btn-primary"
+            style={{ background: 'linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%)', border: 'none', padding: '12px', fontWeight: 'bold' }}
+          >
+            Guardar Configuración de Instagram
+          </button>
+        </div>
+      </div>
+
       <div style={{ marginTop: '2rem', padding: '20px', background: 'rgba(211,47,47,0.1)', border: '1px solid rgba(211,47,47,0.3)', borderRadius: '12px' }}>
         <h3 style={{ color: '#d32f2f', marginBottom: '16px' }}>⚙️ Zona de Peligro</h3>
         <p style={{ color: 'var(--glass-text)', marginBottom: '16px', fontSize: '0.9rem' }}>
