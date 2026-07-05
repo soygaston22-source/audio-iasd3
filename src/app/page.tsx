@@ -1127,50 +1127,7 @@ function AdminView({ schedule, statuses, activityLog, resetRequests, futureReque
   const [newsText, setNewsText] = useState("");
   const [newsFile, setNewsFile] = useState<File | null>(null);
 
-  const [aiAdminPrompt, setAiAdminPrompt] = useState("");
-  const [aiAdminLoading, setAiAdminLoading] = useState(false);
-  const [aiAdminResult, setAiAdminResult] = useState<any>(null);
-
-  const handleAdminAI = async () => {
-    if (!aiAdminPrompt.trim()) return;
-    setAiAdminLoading(true);
-    setAiAdminResult(null);
-    try {
-      const res = await fetch('/api/ai_admin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: aiAdminPrompt })
-      });
-      const data = await res.json();
-      if (data.response) {
-        setAiAdminResult(JSON.parse(data.response));
-      } else {
-        alert("Error de la IA: " + data.error);
-      }
-    } catch (e: any) {
-      alert("Error en AI Admin: " + e.message);
-    } finally {
-      setAiAdminLoading(false);
-    }
-  };
-
-  const handlePublishGrid = async () => {
-    if (!aiAdminResult) return;
-    try {
-      await addDoc(collection(db, "announcements"), {
-        text: "Nuevo cronograma publicado",
-        type: "schedule_grid",
-        gridData: aiAdminResult,
-        timestamp: serverTimestamp(),
-        author: "Administrador (IA)"
-      });
-      alert("Cronograma publicado con éxito en Novedades.");
-      setAiAdminResult(null);
-      setAiAdminPrompt("");
-    } catch (e: any) {
-      alert("Error al publicar cronograma: " + e.message);
-    }
-  };
+  
   const [isUploadingNews, setIsUploadingNews] = useState(false);
   const newsFileInputRef = useRef<HTMLInputElement>(null);
 

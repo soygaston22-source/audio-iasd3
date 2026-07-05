@@ -32,40 +32,38 @@ export function getWeekNumber(d: Date): { weekNo: number; year: number } {
   return { weekNo, year: date.getUTCFullYear() };
 }
 
-const FIXED_ROTATION = [
-  { morning: ["Josias", "Valentino"], afternoon: ["Santiago", "Valentino"] }, // Week 0 (July 11)
-  { morning: ["Facundo", "Anibal"], afternoon: ["Leonel", "Tomas"] },       // Week 1 (July 18)
-  { morning: ["Gaston", "Josias"], afternoon: ["Santiago", "Valentino"] },  // Week 2 (July 25) - Wait, image says Santiago - Vitto. Let's use Valentino.
-  { morning: ["Leonel", "Tomas"], afternoon: ["Gaston", "Anibal"] }         // Week 3 (August 1) - Extrapolated from pattern (Leonel/Tomi and Gaston/Anibal from July 4)
-];
-
 export function getScheduleForDate(date: Date, approvedSwaps: ApprovedSwap[] = [], seedOffset: number = 0) {
   const { weekNo, year } = getWeekNumber(date);
   
   // Calculate exact date of the Saturday for this week
-  const dateObj = new Date(Date.UTC(year, 0, 1)); // start of year
-  dateObj.setUTCDate(dateObj.getUTCDate() + (weekNo - 1) * 7); // add weeks
+  const dateObj = new Date(Date.UTC(year, 0, 1));
+  dateObj.setUTCDate(dateObj.getUTCDate() + (weekNo - 1) * 7);
   const day = dateObj.getUTCDay();
   const diff = 6 - day;
   dateObj.setUTCDate(dateObj.getUTCDate() + diff);
   const scheduleDate = dateObj.toISOString().split('T')[0];
 
-  // Base date for Week 0 is July 11, 2026.
-  const baseDate = new Date(Date.UTC(2026, 6, 11)); // Month is 0-indexed (6 = July)
-  const diffTime = Math.abs(dateObj.getTime() - baseDate.getTime());
-  const diffWeeks = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7));
+  const baseSeed = weekNo + (year * 52) + seedOffset;
+
+  // We need to pick 4 people for the weekend. 2 morning, 2 afternoon.
+  // Rule: Santiago must be in afternoon.
   
-  // If dateObj is BEFORE baseDate, we still want it to map correctly using modulo
-  let weekIndex = diffWeeks % FIXED_ROTATION.length;
-  if (dateObj.getTime() < baseDate.getTime()) {
-    weekIndex = (FIXED_ROTATION.length - (diffWeeks % FIXED_ROTATION.length)) % FIXED_ROTATION.length;
+  let available = TEAM.filter(m => m !== "Santiago");
+  
+  // Sort available pseudo-randomly
+  available = available.sort((a, b) => {
+    return seededRandom(baseSeed + a.charCodeAt(0)) - 0.5;
+  });
+  
+  let morning = [available[0], available[1]];
+  
+  // Santiago goes to afternoon, plus one more random person
+  let afternoon = ["Santiago", available[2]];
+  
+  // Optionally shuffle afternoon so Santiago is not always first
+  if (seededRandom(baseSeed + 999) > 0.5) {
+    afternoon = [available[2], "Santiago"];
   }
-
-  let { morning, afternoon } = FIXED_ROTATION[weekIndex];
-
-  // Clone arrays to prevent mutation
-  morning = [...morning];
-  afternoon = [...afternoon];
 
   // Apply approved swaps overrides
   approvedSwaps.forEach(swap => {
