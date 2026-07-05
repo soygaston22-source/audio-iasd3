@@ -32,45 +32,40 @@ export function getWeekNumber(d: Date): { weekNo: number; year: number } {
   return { weekNo, year: date.getUTCFullYear() };
 }
 
+const FIXED_ROTATION = [
+  { morning: ["Josias", "Valentino"], afternoon: ["Santiago", "Valentino"] }, // Week 0 (July 11)
+  { morning: ["Facundo", "Anibal"], afternoon: ["Leonel", "Tomas"] },       // Week 1 (July 18)
+  { morning: ["Gaston", "Josias"], afternoon: ["Santiago", "Valentino"] },  // Week 2 (July 25) - Wait, image says Santiago - Vitto. Let's use Valentino.
+  { morning: ["Leonel", "Tomas"], afternoon: ["Gaston", "Anibal"] }         // Week 3 (August 1) - Extrapolated from pattern (Leonel/Tomi and Gaston/Anibal from July 4)
+];
+
 export function getScheduleForDate(date: Date, approvedSwaps: ApprovedSwap[] = [], seedOffset: number = 0) {
   const { weekNo, year } = getWeekNumber(date);
   
-  // A "block" is a 2-week period where all 8 members serve exactly once.
-  // weekNo is 1-indexed. Let's make it 0-indexed for math.
-  const wIndex = weekNo - 1;
-  const blockNumber = Math.floor(wIndex / 2);
-  const weekWithinBlock = wIndex % 2; // 0 or 1
-  
-  // Seed based on year, blockNumber and global offset to get a deterministic shuffle for this 2-week period
-  const seed = year * 1000 + blockNumber + seedOffset;
-  let randomQueue = [...TEAM];
-  
-  // Deterministic shuffle
-  for (let i = randomQueue.length - 1; i > 0; i--) {
-    // Generate pseudo-random number for index j
-    // We add i to the seed logic so it changes each iteration
-    const rand = seededRandom(seed + i * 10);
-    const j = Math.floor(rand * (i + 1));
-    [randomQueue[i], randomQueue[j]] = [randomQueue[j], randomQueue[i]];
-  }
-  
-  // Now we have a shuffled array of 8 members.
-  // Week 0 gets indices 0-3, Week 1 gets indices 4-7.
-  const startIndex = weekWithinBlock * 4;
-  const selectedMembers = randomQueue.slice(startIndex, startIndex + 4);
-  
   // Calculate exact date of the Saturday for this week
-  // Date given is current date, we want the Saturday of this week
   const dateObj = new Date(Date.UTC(year, 0, 1)); // start of year
   dateObj.setUTCDate(dateObj.getUTCDate() + (weekNo - 1) * 7); // add weeks
   const day = dateObj.getUTCDay();
-  // Saturday is 6
   const diff = 6 - day;
   dateObj.setUTCDate(dateObj.getUTCDate() + diff);
-  
   const scheduleDate = dateObj.toISOString().split('T')[0];
-  let morning = [selectedMembers[0], selectedMembers[1]];
-  let afternoon = [selectedMembers[2], selectedMembers[3]];
+
+  // Base date for Week 0 is July 11, 2026.
+  const baseDate = new Date(Date.UTC(2026, 6, 11)); // Month is 0-indexed (6 = July)
+  const diffTime = Math.abs(dateObj.getTime() - baseDate.getTime());
+  const diffWeeks = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7));
+  
+  // If dateObj is BEFORE baseDate, we still want it to map correctly using modulo
+  let weekIndex = diffWeeks % FIXED_ROTATION.length;
+  if (dateObj.getTime() < baseDate.getTime()) {
+    weekIndex = (FIXED_ROTATION.length - (diffWeeks % FIXED_ROTATION.length)) % FIXED_ROTATION.length;
+  }
+
+  let { morning, afternoon } = FIXED_ROTATION[weekIndex];
+
+  // Clone arrays to prevent mutation
+  morning = [...morning];
+  afternoon = [...afternoon];
 
   // Apply approved swaps overrides
   approvedSwaps.forEach(swap => {

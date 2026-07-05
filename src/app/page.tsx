@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { getScheduleForDate, TEAM, getAllFutureShiftsForUser, formatDate, ApprovedSwap } from "@/lib/rotation";
-import { db } from "@/lib/firebase";
+import { db, storage } from "@/lib/firebase";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { collection, doc, onSnapshot, setDoc, query, orderBy, limit, addDoc, serverTimestamp, getDoc, deleteDoc, increment, where, getDocs, updateDoc } from "firebase/firestore";
 
 type Role = "ADMIN" | "USER" | null;
@@ -28,6 +29,15 @@ export interface Announcement {
   fileType?: string | null;
   timestamp: any;
   author: string;
+}
+
+export interface SpecialShift {
+  id: string;
+  title: string;
+  date: string;
+  members: string[];
+  fileUrl?: string;
+  fileName?: string;
 }
 
 interface FutureChangeRequest {
@@ -98,6 +108,7 @@ export default function Home() {
   const [activityLog, setActivityLog] = useState<ActivityEntry[]>([]);
   const [resetRequests, setResetRequests] = useState<string[]>([]);
   const [futureRequests, setFutureRequests] = useState<FutureChangeRequest[]>([]);
+  const [specialShifts, setSpecialShifts] = useState<SpecialShift[]>([]);
   const [pendingSwaps, setPendingSwaps] = useState<PendingSwap[]>([]);
   const [approvedSwaps, setApprovedSwaps] = useState<ApprovedSwap[]>([]);
   const [seedOffset, setSeedOffset] = useState<number>(0);
@@ -124,6 +135,7 @@ export default function Home() {
         if (data.schedule) setSchedule(data.schedule);
         if (data.resetRequests) setResetRequests(data.resetRequests);
         if (data.futureRequests) setFutureRequests(data.futureRequests);
+        if (data.specialShifts) setSpecialShifts(data.specialShifts);
         if (data.pendingSwaps) setPendingSwaps(data.pendingSwaps);
         if (data.approvedSwaps) setApprovedSwaps(data.approvedSwaps);
         if (data.seedOffset !== undefined) setSeedOffset(data.seedOffset);
@@ -135,6 +147,7 @@ export default function Home() {
           schedule: sched,
           resetRequests: [],
           futureRequests: [],
+          specialShifts: [],
           pendingSwaps: [],
           approvedSwaps: [],
           seedOffset: 0,
@@ -635,6 +648,7 @@ export default function Home() {
       <main className="content">
         {currentUser.role === "USER" && schedule && (
           <UserView 
+            specialShifts={specialShifts}
             currentDate={currentDate}
             schedule={schedule} 
             userName={currentUser.name} 
@@ -656,6 +670,7 @@ export default function Home() {
 
         {currentUser.role === "ADMIN" && schedule && (
           <AdminView 
+            specialShifts={specialShifts}
             schedule={schedule}
             statuses={userStatuses}
             activityLog={activityLog}
@@ -700,8 +715,8 @@ export default function Home() {
   );
 }
 
-function UserView({ currentDate, schedule, userName, status, notifications, pendingSwaps, approvedSwaps, seedOffset, announcements, onConfirm, onIssue, onFutureIssue, onChangePassword, onClearNotifications, onAcceptSwap, onRejectSwap }: { 
-  currentDate: Date, schedule: any, userName: string, status: Status, notifications: string[], pendingSwaps: PendingSwap[], approvedSwaps: ApprovedSwap[], seedOffset: number, announcements: Announcement[], onConfirm: () => void, onIssue: () => void, onFutureIssue: (date: string, shift: string, targetUser: string, targetDate: string, targetShift: string) => void, onChangePassword: () => void, onClearNotifications: () => void, onAcceptSwap: (swap: PendingSwap) => void, onRejectSwap: (swap: PendingSwap) => void
+function UserView({ currentDate, schedule, userName, status, notifications, pendingSwaps, approvedSwaps, specialShifts, seedOffset, announcements, onConfirm, onIssue, onFutureIssue, onChangePassword, onClearNotifications, onAcceptSwap, onRejectSwap }: { 
+  currentDate: Date, schedule: any, userName: string, status: Status, notifications: string[], pendingSwaps: PendingSwap[], approvedSwaps: ApprovedSwap[], specialShifts: SpecialShift[], seedOffset: number, announcements: Announcement[], onConfirm: () => void, onIssue: () => void, onFutureIssue: (date: string, shift: string, targetUser: string, targetDate: string, targetShift: string) => void, onChangePassword: () => void, onClearNotifications: () => void, onAcceptSwap: (swap: PendingSwap) => void, onRejectSwap: (swap: PendingSwap) => void
 }) {
   const isSunday = currentDate.getDay() === 0;
   const searchFrom = isSunday ? new Date(currentDate.getTime() + 86400000) : currentDate;
@@ -895,6 +910,38 @@ function UserView({ currentDate, schedule, userName, status, notifications, pend
         </div>
       ) : (
         <div>
+          
+          {/* Turnos Especiales */}
+          {specialShifts.filter(ss => ss.members.includes(userName)).length > 0 && (
+            <div style={{ marginBottom: '24px' }}>
+              <h4 style={{ marginBottom: '12px', fontSize: '1.1rem', color: '#ff9800' }}>⭐ Mis Turnos Especiales</h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {specialShifts.filter(ss => ss.members.includes(userName)).map((shift) => (
+                  <div key={shift.id} className="glass-card" style={{ border: '1px solid rgba(255, 152, 0, 0.5)', background: 'rgba(255, 152, 0, 0.1)' }}>
+                    <h3 style={{ color: '#ff9800', marginBottom: '8px' }}>{shift.title}</h3>
+                    <p style={{ fontWeight: 'bold' }}>{formatDate(shift.date)}</p>
+                    <p style={{ fontSize: '0.9rem', marginTop: '8px', color: 'var(--text-muted)' }}>
+                      Junto a: {shift.members.filter(m => m !== userName).join(', ')}
+                    </p>
+                    {shift.fileUrl && (
+                      <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid rgba(255,152,0,0.3)' }}>
+                        <a 
+                          href={shift.fileUrl} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="btn btn-outline"
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 12px', fontSize: '0.9rem', color: '#ff9800', borderColor: '#ff9800' }}
+                        >
+                          📎 Ver Archivo Adjunto ({shift.fileName})
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <h4 style={{ marginBottom: '12px', fontSize: '1.1rem' }}>Mis Próximos Turnos</h4>
           <div style={{ display: 'flex', overflowX: 'auto', gap: '16px', paddingBottom: '16px', scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'touch' }}>
             {futureShifts.map((shiftInfo, idx) => {
@@ -999,9 +1046,78 @@ function UserView({ currentDate, schedule, userName, status, notifications, pend
   );
 }
 
-function AdminView({ schedule, statuses, activityLog, resetRequests, futureRequests, approvedSwaps, announcements, onChangeAssignment, onRejectAssignment, onResetPassword, onDismissFutureRequest, onRejectFutureRequest, onRandomReassign, onDeleteAnnouncement, youtubeLiveUrl, onUpdateYoutubeLive }: { 
-  schedule: any, statuses: Record<string, Status>, activityLog: ActivityEntry[], resetRequests: string[], futureRequests: FutureChangeRequest[], approvedSwaps: ApprovedSwap[], announcements: Announcement[], onChangeAssignment: (member: string) => void, onRejectAssignment: (member: string) => void, onResetPassword: (member: string) => void, onDismissFutureRequest: (id: string) => void, onRejectFutureRequest: (req: FutureChangeRequest) => void, onRandomReassign: () => void, onDeleteAnnouncement: (id: string) => void, youtubeLiveUrl?: string, onUpdateYoutubeLive?: (url: string) => void
+function AdminView({ schedule, statuses, activityLog, resetRequests, futureRequests, approvedSwaps, specialShifts, announcements, onChangeAssignment, onRejectAssignment, onResetPassword, onDismissFutureRequest, onRejectFutureRequest, onRandomReassign, onDeleteAnnouncement, youtubeLiveUrl, onUpdateYoutubeLive }: { 
+  schedule: any, statuses: Record<string, Status>, activityLog: ActivityEntry[], resetRequests: string[], futureRequests: FutureChangeRequest[], approvedSwaps: ApprovedSwap[], specialShifts: SpecialShift[], announcements: Announcement[], onChangeAssignment: (member: string) => void, onRejectAssignment: (member: string) => void, onResetPassword: (member: string) => void, onDismissFutureRequest: (id: string) => void, onRejectFutureRequest: (req: FutureChangeRequest) => void, onRandomReassign: () => void, onDeleteAnnouncement: (id: string) => void, youtubeLiveUrl?: string, onUpdateYoutubeLive?: (url: string) => void
 }) {
+  
+  const [specialShiftTitle, setSpecialShiftTitle] = useState("");
+  const [specialShiftDate, setSpecialShiftDate] = useState("");
+  const [specialShiftMembers, setSpecialShiftMembers] = useState<string[]>([]);
+  const [specialShiftFile, setSpecialShiftFile] = useState<File | null>(null);
+  const [isCreatingSpecial, setIsCreatingSpecial] = useState(false);
+  const specialFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleToggleSpecialMember = (member: string) => {
+    setSpecialShiftMembers(prev => 
+      prev.includes(member) ? prev.filter(m => m !== member) : [...prev, member]
+    );
+  };
+
+  const handleCreateSpecialShift = async () => {
+    if (!specialShiftTitle.trim() || !specialShiftDate || specialShiftMembers.length === 0) {
+      alert("Debes escribir un título, seleccionar una fecha y al menos un miembro.");
+      return;
+    }
+    setIsCreatingSpecial(true);
+    try {
+      let fileUrl = "";
+      let fileName = "";
+      if (specialShiftFile) {
+        const storageRef = ref(storage, `special_shifts/${Date.now()}_${specialShiftFile.name}`);
+        const snapshot = await uploadBytes(storageRef, specialShiftFile);
+        fileUrl = await getDownloadURL(snapshot.ref);
+        fileName = specialShiftFile.name;
+      }
+
+      const newShift: SpecialShift = {
+        id: Date.now().toString(),
+        title: specialShiftTitle.trim(),
+        date: specialShiftDate,
+        members: specialShiftMembers,
+        fileUrl,
+        fileName
+      };
+      await updateDoc(doc(db, "app_state", "global"), {
+        specialShifts: [...specialShifts, newShift]
+      });
+      setSpecialShiftTitle("");
+      setSpecialShiftDate("");
+      setSpecialShiftMembers([]);
+      setSpecialShiftFile(null);
+      alert("Turno Especial creado con éxito.");
+      
+      specialShiftMembers.forEach(member => {
+        sendPushNotification(member, `⭐ Nuevo Turno Especial`, `Has sido asignado a: ${newShift.title}`);
+      });
+    } catch (e: any) {
+      alert("Error al crear turno especial: " + e.message);
+    } finally {
+      setIsCreatingSpecial(false);
+    }
+  };
+
+  const handleDeleteSpecialShift = async (id: string) => {
+    if (!confirm("¿Seguro que deseas eliminar este turno especial?")) return;
+    try {
+      const updated = specialShifts.filter(s => s.id !== id);
+      await updateDoc(doc(db, "app_state", "global"), {
+        specialShifts: updated
+      });
+    } catch (e: any) {
+      alert("Error al eliminar turno: " + e.message);
+    }
+  };
+
   const [newsTitle, setNewsTitle] = useState("");
   const [newsText, setNewsText] = useState("");
   const [newsFile, setNewsFile] = useState<File | null>(null);
