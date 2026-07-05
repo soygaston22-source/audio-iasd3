@@ -94,6 +94,7 @@ export default function Home() {
   const [currentUser, setCurrentUser] = useState<UserState | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
+  const [showLoginOptions, setShowLoginOptions] = useState(false);
   
   // App state
   const [currentDate] = useState(new Date());
@@ -119,6 +120,8 @@ export default function Home() {
   const [seedOffset, setSeedOffset] = useState<number>(0);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [youtubeLiveUrl, setYoutubeLiveUrl] = useState<string>("");
+  const [instagramPostUrl, setInstagramPostUrl] = useState<string>("");
+  const [instagramProfileUrl, setInstagramProfileUrl] = useState<string>("");
 
   const addLog = async (action: string) => {
     try {
@@ -145,6 +148,8 @@ export default function Home() {
         if (data.approvedSwaps) setApprovedSwaps(data.approvedSwaps);
         if (data.seedOffset !== undefined) setSeedOffset(data.seedOffset);
         if (data.youtubeLiveUrl !== undefined) setYoutubeLiveUrl(data.youtubeLiveUrl);
+        if (data.instagramPostUrl !== undefined) setInstagramPostUrl(data.instagramPostUrl);
+        if (data.instagramProfileUrl !== undefined) setInstagramProfileUrl(data.instagramProfileUrl);
       } else {
         // Init global state if not exists
         const sched = getScheduleForDate(new Date(), [], 0);
@@ -555,24 +560,39 @@ export default function Home() {
         </div>
         
         <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          <h3 style={{ marginBottom: '10px' }}>Usuarios</h3>
-          {TEAM.map(member => {
-            const hasNotif = userNotifications[member]?.length > 0;
-            const hasSwap = pendingSwaps.some(s => s.toUser === member);
-            return (
-              <button key={member} className="btn btn-outline" onClick={() => handleLogin(member, "USER")} style={{ position: 'relative' }}>
-                Ingresar como {member}
-                {(hasNotif || hasSwap) && (
-                  <span style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', backgroundColor: hasSwap ? '#2e7d32' : '#ef6c00', width: '12px', height: '12px', borderRadius: '50%' }}></span>
-                )}
+          {!showLoginOptions ? (
+            <button 
+              className="btn btn-primary" 
+              onClick={() => setShowLoginOptions(true)}
+              style={{ padding: '16px', fontSize: '1.2rem', fontWeight: 'bold' }}
+            >
+              Iniciar Sesión
+            </button>
+          ) : (
+            <>
+              <h3 style={{ marginBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                Usuarios
+                <button onClick={() => setShowLoginOptions(false)} style={{ background: 'transparent', border: 'none', color: 'var(--glass-text)', cursor: 'pointer', fontSize: '0.9rem' }}>✖ Cerrar</button>
+              </h3>
+              {TEAM.map(member => {
+                const hasNotif = userNotifications[member]?.length > 0;
+                const hasSwap = pendingSwaps.some(s => s.toUser === member);
+                return (
+                  <button key={member} className="btn btn-outline" onClick={() => handleLogin(member, "USER")} style={{ position: 'relative' }}>
+                    Ingresar como {member}
+                    {(hasNotif || hasSwap) && (
+                      <span style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', backgroundColor: hasSwap ? '#2e7d32' : '#ef6c00', width: '12px', height: '12px', borderRadius: '50%' }}></span>
+                    )}
+                  </button>
+                );
+              })}
+              
+              <h3 style={{ marginTop: '2rem', marginBottom: '10px' }}>Administrador</h3>
+              <button className="btn btn-primary" onClick={() => handleLogin("Admin", "ADMIN")}>
+                Ingresar como Administrador
               </button>
-            );
-          })}
-          
-          <h3 style={{ marginTop: '2rem', marginBottom: '10px' }}>Administrador</h3>
-          <button className="btn btn-primary" onClick={() => handleLogin("Admin", "ADMIN")}>
-            Ingresar como Administrador
-          </button>
+            </>
+          )}
         </div>
       </div>
     );
@@ -653,6 +673,8 @@ export default function Home() {
       <main className="content">
         {currentUser.role === "USER" && schedule && (
           <UserView 
+            instagramPostUrl={instagramPostUrl}
+            instagramProfileUrl={instagramProfileUrl}
             specialShifts={specialShifts}
             currentDate={currentDate}
             schedule={schedule} 
@@ -692,6 +714,12 @@ export default function Home() {
             onDeleteAnnouncement={handleDeleteAnnouncement}
             youtubeLiveUrl={youtubeLiveUrl}
             onUpdateYoutubeLive={handleUpdateYoutubeLive}
+            instagramPostUrl={instagramPostUrl}
+            instagramProfileUrl={instagramProfileUrl}
+            onUpdateInstagramInfo={async (post, profile) => {
+              await setDoc(doc(db, "app_state", "global"), { instagramPostUrl: post, instagramProfileUrl: profile }, { merge: true });
+              alert("Información de Instagram actualizada.");
+            }}
           />
         )}
       </main>
@@ -721,7 +749,9 @@ export default function Home() {
 }
 
 function UserView({ currentDate, schedule, userName, status, notifications, pendingSwaps, approvedSwaps, specialShifts, seedOffset, announcements, onConfirm, onIssue, onFutureIssue, onChangePassword, onClearNotifications, onAcceptSwap, onRejectSwap }: { 
-  currentDate: Date, schedule: any, userName: string, status: Status, notifications: string[], pendingSwaps: PendingSwap[], approvedSwaps: ApprovedSwap[], specialShifts: SpecialShift[], seedOffset: number, announcements: Announcement[], onConfirm: () => void, onIssue: () => void, onFutureIssue: (date: string, shift: string, targetUser: string, targetDate: string, targetShift: string) => void, onChangePassword: () => void, onClearNotifications: () => void, onAcceptSwap: (swap: PendingSwap) => void, onRejectSwap: (swap: PendingSwap) => void
+  currentDate: Date, schedule: any, userName: string, status: Status, notifications: string[], pendingSwaps: PendingSwap[], approvedSwaps: ApprovedSwap[], specialShifts: SpecialShift[], seedOffset: number, announcements: Announcement[],
+  instagramPostUrl: string,
+  instagramProfileUrl: string, onConfirm: () => void, onIssue: () => void, onFutureIssue: (date: string, shift: string, targetUser: string, targetDate: string, targetShift: string) => void, onChangePassword: () => void, onClearNotifications: () => void, onAcceptSwap: (swap: PendingSwap) => void, onRejectSwap: (swap: PendingSwap) => void
 }) {
   const isSunday = currentDate.getDay() === 0;
   const searchFrom = isSunday ? new Date(currentDate.getTime() + 86400000) : currentDate;
@@ -1051,8 +1081,9 @@ function UserView({ currentDate, schedule, userName, status, notifications, pend
   );
 }
 
-function AdminView({ schedule, statuses, activityLog, resetRequests, futureRequests, approvedSwaps, specialShifts, announcements, onChangeAssignment, onRejectAssignment, onResetPassword, onDismissFutureRequest, onRejectFutureRequest, onRandomReassign, onDeleteAnnouncement, youtubeLiveUrl, onUpdateYoutubeLive }: { 
-  schedule: any, statuses: Record<string, Status>, activityLog: ActivityEntry[], resetRequests: string[], futureRequests: FutureChangeRequest[], approvedSwaps: ApprovedSwap[], specialShifts: SpecialShift[], announcements: Announcement[], onChangeAssignment: (member: string) => void, onRejectAssignment: (member: string) => void, onResetPassword: (member: string) => void, onDismissFutureRequest: (id: string) => void, onRejectFutureRequest: (req: FutureChangeRequest) => void, onRandomReassign: () => void, onDeleteAnnouncement: (id: string) => void, youtubeLiveUrl?: string, onUpdateYoutubeLive?: (url: string) => void
+function AdminView({ schedule, statuses, activityLog, resetRequests, futureRequests, approvedSwaps, specialShifts, announcements, onChangeAssignment, onRejectAssignment, onResetPassword, onDismissFutureRequest, onRejectFutureRequest, onRandomReassign, onDeleteAnnouncement, youtubeLiveUrl, onUpdateYoutubeLive, instagramPostUrl, instagramProfileUrl, onUpdateInstagramInfo }: { 
+  schedule: any, statuses: Record<string, Status>, activityLog: ActivityEntry[], resetRequests: string[], futureRequests: FutureChangeRequest[], approvedSwaps: ApprovedSwap[], specialShifts: SpecialShift[], announcements: Announcement[], onChangeAssignment: (member: string) => void, onRejectAssignment: (member: string) => void, onResetPassword: (member: string) => void, onDismissFutureRequest: (id: string) => void, onRejectFutureRequest: (req: FutureChangeRequest) => void, onRandomReassign: () => void, onDeleteAnnouncement: (id: string) => void, youtubeLiveUrl?: string, onUpdateYoutubeLive?: (url: string) => void,
+  instagramPostUrl?: string, instagramProfileUrl?: string, onUpdateInstagramInfo?: (postUrl: string, profileUrl: string) => void
 }) {
   
   const [specialShiftTitle, setSpecialShiftTitle] = useState("");
