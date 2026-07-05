@@ -9,15 +9,13 @@ export const TEAM = [
   "Gaston"
 ];
 
-// Patrón de 4 semanas según el cronograma (Inicia el Sábado 11 de Julio de 2026)
-const SCHEDULE_CYCLE = [
-  { morning: ["Josias", "Valentino"], afternoon: ["Santiago", "Valentino"] }, // Semana 1 (ej: 11/07)
-  { morning: ["Facundo", "Anibal"], afternoon: ["Leonel", "Tomas"] },         // Semana 2 (ej: 18/07)
-  { morning: ["Gaston", "Josias"], afternoon: ["Santiago", "Valentino"] },    // Semana 3 (ej: 25/07)
-  { morning: ["Leonel", "Tomas"], afternoon: ["Gaston", "Anibal"] }           // Semana 4 (ej: 04/07 ó 01/08)
-];
-
-const BASE_SATURDAY = new Date(Date.UTC(2026, 6, 11)); // 11 de Julio de 2026
+// Simple seeded PRNG
+function seededRandom(seed: number) {
+  let t = seed += 0x6D2B79F5;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
 
 export interface ApprovedSwap {
   date1: string;
@@ -37,7 +35,32 @@ export function getWeekNumber(d: Date): { weekNo: number; year: number } {
 export function getScheduleForDate(date: Date, approvedSwaps: ApprovedSwap[] = [], seedOffset: number = 0) {
   const { weekNo, year } = getWeekNumber(date);
   
+  // A "block" is a 2-week period where all 8 members serve exactly once.
+  // weekNo is 1-indexed. Let's make it 0-indexed for math.
+  const wIndex = weekNo - 1;
+  const blockNumber = Math.floor(wIndex / 2);
+  const weekWithinBlock = wIndex % 2; // 0 or 1
+  
+  // Seed based on year, blockNumber and global offset to get a deterministic shuffle for this 2-week period
+  const seed = year * 1000 + blockNumber + seedOffset;
+  let randomQueue = [...TEAM];
+  
+  // Deterministic shuffle
+  for (let i = randomQueue.length - 1; i > 0; i--) {
+    // Generate pseudo-random number for index j
+    // We add i to the seed logic so it changes each iteration
+    const rand = seededRandom(seed + i * 10);
+    const j = Math.floor(rand * (i + 1));
+    [randomQueue[i], randomQueue[j]] = [randomQueue[j], randomQueue[i]];
+  }
+  
+  // Now we have a shuffled array of 8 members.
+  // Week 0 gets indices 0-3, Week 1 gets indices 4-7.
+  const startIndex = weekWithinBlock * 4;
+  const selectedMembers = randomQueue.slice(startIndex, startIndex + 4);
+  
   // Calculate exact date of the Saturday for this week
+  // Date given is current date, we want the Saturday of this week
   const dateObj = new Date(Date.UTC(year, 0, 1)); // start of year
   dateObj.setUTCDate(dateObj.getUTCDate() + (weekNo - 1) * 7); // add weeks
   const day = dateObj.getUTCDay();
@@ -46,24 +69,8 @@ export function getScheduleForDate(date: Date, approvedSwaps: ApprovedSwap[] = [
   dateObj.setUTCDate(dateObj.getUTCDate() + diff);
   
   const scheduleDate = dateObj.toISOString().split('T')[0];
-  
-  // Calculate difference in weeks from BASE_SATURDAY
-  const targetTime = dateObj.getTime();
-  const baseTime = BASE_SATURDAY.getTime();
-  const diffInDays = Math.round((targetTime - baseTime) / (1000 * 60 * 60 * 24));
-  let diffInWeeks = Math.floor(diffInDays / 7);
-  
-  // Modulo 4 for the cycle (handle negative weeks safely)
-  let cycleIndex = diffInWeeks % 4;
-  if (cycleIndex < 0) {
-    cycleIndex += 4;
-  }
-
-  // Get base assignment from cycle
-  const baseAssignment = SCHEDULE_CYCLE[cycleIndex];
-  
-  let morning = [...baseAssignment.morning];
-  let afternoon = [...baseAssignment.afternoon];
+  let morning = [selectedMembers[0], selectedMembers[1]];
+  let afternoon = [selectedMembers[2], selectedMembers[3]];
 
   // Apply approved swaps overrides
   approvedSwaps.forEach(swap => {
