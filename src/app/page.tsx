@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
-import { getScheduleForDate, TEAM, getAllFutureShiftsForUser, formatDate, ApprovedSwap } from "@/lib/rotation";
+import { TEAM, getAllFutureShiftsForUser, formatDate, ApprovedSwap } from "@/lib/rotation";
 import { db, storage } from "@/lib/firebase";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { collection, doc, onSnapshot, setDoc, query, orderBy, limit, addDoc, serverTimestamp, getDoc, deleteDoc, increment, where, getDocs, updateDoc } from "firebase/firestore";
@@ -100,8 +100,6 @@ export default function Home() {
   const [schedule, setSchedule] = useState<{
     morning: string[];
     afternoon: string[];
-    weekNo: number;
-    year: number;
     date: string;
   } | null>(null);
   
@@ -118,6 +116,7 @@ export default function Home() {
   const [approvedSwaps, setApprovedSwaps] = useState<ApprovedSwap[]>([]);
   const [seedOffset, setSeedOffset] = useState<number>(0);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [aiSchedules, setAiSchedules] = useState<any[]>([]);
   const [youtubeLiveUrl, setYoutubeLiveUrl] = useState<string>("");
 
   const addLog = async (action: string) => {
@@ -145,9 +144,10 @@ export default function Home() {
         if (data.approvedSwaps) setApprovedSwaps(data.approvedSwaps);
         if (data.seedOffset !== undefined) setSeedOffset(data.seedOffset);
         if (data.youtubeLiveUrl !== undefined) setYoutubeLiveUrl(data.youtubeLiveUrl);
+        if (data.aiSchedules) setAiSchedules(data.aiSchedules);
       } else {
         // Init global state if not exists
-        const sched = getScheduleForDate(new Date(), [], 0);
+        const sched = { morning: [], afternoon: [], date: new Date().toISOString().split('T')[0] };
         setDoc(doc(db, "app_state", "global"), {
           schedule: sched,
           resetRequests: [],
@@ -156,6 +156,7 @@ export default function Home() {
           pendingSwaps: [],
           approvedSwaps: [],
           seedOffset: 0,
+          aiSchedules: [],
           youtubeLiveUrl: ""
         });
         setSchedule(sched);
@@ -232,9 +233,12 @@ export default function Home() {
     if (schedule) {
       const today = new Date();
       if (today.getDay() === 0) today.setDate(today.getDate() + 1); // Sunday belongs to next week's schedule
-      const expectedSched = getScheduleForDate(today, approvedSwaps, seedOffset);
+      // Find the currently applicable schedule from aiSchedules
+      const todayStr = today.toISOString().split('T')[0];
+      // We want the closest aiSchedule whose date is >= today, or just take the first future one.
+      const expectedSched = aiSchedules.find(s => s.date >= todayStr) || schedule;
 
-      if (schedule.date !== expectedSched.date) {
+      if (expectedSched && expectedSched.date && schedule.date !== expectedSched.date && expectedSched.date > schedule.date) {
         // Schedule is outdated! Roll it forward.
         const rollOver = async () => {
           TEAM.forEach(member => {
@@ -386,7 +390,17 @@ export default function Home() {
 
     let newSchedule = schedule;
     if (schedule && (schedule.date === swap.fromDate || schedule.date === swap.toDate)) {
-      newSchedule = getScheduleForDate(new Date(`${schedule.date}T12:00:00`), newApproved);
+      let morning = [...schedule.morning];
+      let afternoon = [...schedule.afternoon];
+      if (schedule.date === swap.fromDate) {
+        morning = morning.map(m => m === swap.fromUser ? swap.toUser : m);
+        afternoon = afternoon.map(m => m === swap.fromUser ? swap.toUser : m);
+      }
+      if (schedule.date === swap.toDate) {
+        morning = morning.map(m => m === swap.toUser ? swap.fromUser : m);
+        afternoon = afternoon.map(m => m === swap.toUser ? swap.fromUser : m);
+      }
+      newSchedule = { ...schedule, morning, afternoon };
     }
 
     await setDoc(doc(db, "app_state", "global"), { 
@@ -495,30 +509,7 @@ export default function Home() {
     sendPushNotification(req.user, "Solicitud Futura Rechazada", `El Administrador ha denegado tu solicitud de cambio para el ${req.date}.`);
   };
 
-  const handleRandomReassign = async () => {
-    if (!confirm("⚠️ ¡ADVERTENCIA EXTREMA!\n\nEstás a punto de reasignar aleatoriamente TODOS los turnos futuros.\n\nEsto borrará todos los trueques pendientes y confirmaciones actuales.\n\n¿Estás completamente seguro de continuar?")) return;
-    
-    const newOffset = Math.floor(Math.random() * 1000000);
-    const today = new Date();
-    if (today.getDay() === 0) today.setDate(today.getDate() + 1);
-    
-    const newSched = getScheduleForDate(today, [], newOffset);
-    
-    // Reset all statuses
-    TEAM.forEach(member => {
-      setDoc(doc(db, "users", member), { status: "PENDING" }, { merge: true });
-    });
-
-    await setDoc(doc(db, "app_state", "global"), { 
-      seedOffset: newOffset,
-      pendingSwaps: [],
-      approvedSwaps: [],
-      schedule: newSched
-    }, { merge: true });
-
-    addLog(`🎲 Administrador ha reasignado aleatoriamente todos los turnos futuros.`);
-    alert("¡Éxito! Todos los turnos han sido reasignados aleatoriamente y los trueques han sido limpiados.");
-  };
+  
 
   const handleDeleteAnnouncement = async (id: string) => {
     if (confirm("¿Estás seguro de que deseas eliminar este aviso?")) {
@@ -653,6 +644,7 @@ export default function Home() {
       <main className="content">
         {currentUser.role === "USER" && schedule && (
           <UserView 
+            aiSchedules={aiSchedules}
             specialShifts={specialShifts}
             currentDate={currentDate}
             schedule={schedule} 
@@ -688,7 +680,6 @@ export default function Home() {
             onResetPassword={handleResetPassword}
             onDismissFutureRequest={handleDismissFutureRequest}
             onRejectFutureRequest={handleRejectFutureRequest}
-            onRandomReassign={handleRandomReassign}
             onDeleteAnnouncement={handleDeleteAnnouncement}
             youtubeLiveUrl={youtubeLiveUrl}
             onUpdateYoutubeLive={handleUpdateYoutubeLive}
@@ -720,13 +711,13 @@ export default function Home() {
   );
 }
 
-function UserView({ currentDate, schedule, userName, status, notifications, pendingSwaps, approvedSwaps, specialShifts, seedOffset, announcements, onConfirm, onIssue, onFutureIssue, onChangePassword, onClearNotifications, onAcceptSwap, onRejectSwap }: { 
-  currentDate: Date, schedule: any, userName: string, status: Status, notifications: string[], pendingSwaps: PendingSwap[], approvedSwaps: ApprovedSwap[], specialShifts: SpecialShift[], seedOffset: number, announcements: Announcement[], onConfirm: () => void, onIssue: () => void, onFutureIssue: (date: string, shift: string, targetUser: string, targetDate: string, targetShift: string) => void, onChangePassword: () => void, onClearNotifications: () => void, onAcceptSwap: (swap: PendingSwap) => void, onRejectSwap: (swap: PendingSwap) => void
+function UserView({ currentDate, schedule, userName, status, notifications, pendingSwaps, approvedSwaps, specialShifts, seedOffset, announcements, aiSchedules, onConfirm, onIssue, onFutureIssue, onChangePassword, onClearNotifications, onAcceptSwap, onRejectSwap }: { 
+  currentDate: Date, schedule: any, userName: string, status: Status, notifications: string[], pendingSwaps: PendingSwap[], approvedSwaps: ApprovedSwap[], specialShifts: SpecialShift[], seedOffset: number, announcements: Announcement[], aiSchedules: any[], onConfirm: () => void, onIssue: () => void, onFutureIssue: (date: string, shift: string, targetUser: string, targetDate: string, targetShift: string) => void, onChangePassword: () => void, onClearNotifications: () => void, onAcceptSwap: (swap: PendingSwap) => void, onRejectSwap: (swap: PendingSwap) => void
 }) {
   const isSunday = currentDate.getDay() === 0;
   const searchFrom = isSunday ? new Date(currentDate.getTime() + 86400000) : currentDate;
   
-  const futureShifts = getAllFutureShiftsForUser(userName, searchFrom, 5, approvedSwaps, seedOffset);
+  const futureShifts = getAllFutureShiftsForUser(userName, aiSchedules, 5, approvedSwaps);
   
   const [swapModalState, setSwapModalState] = useState<{
     shiftDate: string;
@@ -815,7 +806,7 @@ function UserView({ currentDate, schedule, userName, status, notifications, pend
                       className="btn btn-outline"
                       style={{ padding: '10px' }}
                       onClick={() => {
-                        const shifts = getAllFutureShiftsForUser(member, searchFrom, 5, approvedSwaps, seedOffset);
+                        const shifts = getAllFutureShiftsForUser(member, aiSchedules, 5, approvedSwaps);
                         setSwapModalState({ ...swapModalState, targetUser: member, targetShifts: shifts });
                       }}
                     >
@@ -1051,8 +1042,8 @@ function UserView({ currentDate, schedule, userName, status, notifications, pend
   );
 }
 
-function AdminView({ schedule, statuses, activityLog, resetRequests, futureRequests, approvedSwaps, specialShifts, announcements, onChangeAssignment, onRejectAssignment, onResetPassword, onDismissFutureRequest, onRejectFutureRequest, onRandomReassign, onDeleteAnnouncement, youtubeLiveUrl, onUpdateYoutubeLive }: { 
-  schedule: any, statuses: Record<string, Status>, activityLog: ActivityEntry[], resetRequests: string[], futureRequests: FutureChangeRequest[], approvedSwaps: ApprovedSwap[], specialShifts: SpecialShift[], announcements: Announcement[], onChangeAssignment: (member: string) => void, onRejectAssignment: (member: string) => void, onResetPassword: (member: string) => void, onDismissFutureRequest: (id: string) => void, onRejectFutureRequest: (req: FutureChangeRequest) => void, onRandomReassign: () => void, onDeleteAnnouncement: (id: string) => void, youtubeLiveUrl?: string, onUpdateYoutubeLive?: (url: string) => void
+function AdminView({ schedule, statuses, activityLog, resetRequests, futureRequests, approvedSwaps, specialShifts, announcements, onChangeAssignment, onRejectAssignment, onResetPassword, onDismissFutureRequest, onRejectFutureRequest, onDeleteAnnouncement, youtubeLiveUrl, onUpdateYoutubeLive }: { 
+  schedule: any, statuses: Record<string, Status>, activityLog: ActivityEntry[], resetRequests: string[], futureRequests: FutureChangeRequest[], approvedSwaps: ApprovedSwap[], specialShifts: SpecialShift[], announcements: Announcement[], onChangeAssignment: (member: string) => void, onRejectAssignment: (member: string) => void, onResetPassword: (member: string) => void, onDismissFutureRequest: (id: string) => void, onRejectFutureRequest: (req: FutureChangeRequest) => void, onDeleteAnnouncement: (id: string) => void, youtubeLiveUrl?: string, onUpdateYoutubeLive?: (url: string) => void
 }) {
   
   const [specialShiftTitle, setSpecialShiftTitle] = useState("");
@@ -1164,7 +1155,33 @@ function AdminView({ schedule, statuses, activityLog, resetRequests, futureReque
         timestamp: serverTimestamp(),
         author: "Administrador (IA)"
       });
-      alert("Cronograma publicado con éxito en Novedades.");
+      
+      // Convert to AIScheduleWeek format and push to Firebase global state
+      if (aiAdminResult.rows && Array.isArray(aiAdminResult.rows)) {
+        const newAiWeeks = aiAdminResult.rows.map((row: any) => ({
+          date: row.dateIso || new Date().toISOString().split('T')[0], // Fallback if missing
+          morning: row.morning.split('-').map((n: string) => n.trim()),
+          afternoon: row.afternoon.split('-').map((n: string) => n.trim())
+        }));
+        
+        // Append or merge with existing aiSchedules? 
+        // Let's fetch current first, or we can just arrayUnion (but arrayUnion has limits).
+        // Since aiSchedules is just an array, we can pull the latest snapshot and append.
+        const docSnap = await getDoc(doc(db, "app_state", "global"));
+        if (docSnap.exists()) {
+           const currentSchedules = docSnap.data().aiSchedules || [];
+           // Overwrite schedules that have the same date, append new ones
+           const mergedSchedules = [...currentSchedules];
+           newAiWeeks.forEach((nw: any) => {
+              const existingIdx = mergedSchedules.findIndex(s => s.date === nw.date);
+              if (existingIdx >= 0) mergedSchedules[existingIdx] = nw;
+              else mergedSchedules.push(nw);
+           });
+           await setDoc(doc(db, "app_state", "global"), { aiSchedules: mergedSchedules }, { merge: true });
+        }
+      }
+
+      alert("Cronograma publicado en Novedades y Motor Actualizado con éxito.");
       setAiAdminResult(null);
       setAiAdminPrompt("");
     } catch (e: any) {
@@ -1573,18 +1590,7 @@ alert("Error al publicar: " + err.message);
         </div>
       </div>
 
-      <div style={{ marginTop: '2rem', padding: '20px', background: 'rgba(211,47,47,0.1)', border: '1px solid rgba(211,47,47,0.3)', borderRadius: '12px' }}>
-        <h3 style={{ color: '#d32f2f', marginBottom: '16px' }}>⚙️ Zona de Peligro</h3>
-        <p style={{ color: 'var(--glass-text)', marginBottom: '16px', fontSize: '0.9rem' }}>
-          Utiliza este botón solo si necesitas reiniciar por completo el calendario matemático (por ejemplo, para el nuevo trimestre). Borrará todas las confirmaciones y trueques actuales.
-        </p>
-        <button 
-          onClick={onRandomReassign}
-          style={{ width: '100%', padding: '12px', background: '#d32f2f', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '1.1rem' }}
-        >
-          🎲 Reasignar Aleatoriamente Todos los Turnos
-        </button>
-      </div>
+
 
     </div>
   );

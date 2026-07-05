@@ -17,6 +17,12 @@ function seededRandom(seed: number) {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 }
 
+export interface AIScheduleWeek {
+  date: string;
+  morning: string[];
+  afternoon: string[];
+}
+
 export interface ApprovedSwap {
   date1: string;
   user1: string;
@@ -32,61 +38,9 @@ export function getWeekNumber(d: Date): { weekNo: number; year: number } {
   return { weekNo, year: date.getUTCFullYear() };
 }
 
-const FIXED_ROTATION = [
-  { morning: ["Josias", "Valentino"], afternoon: ["Santiago", "Valentino"] }, // Week 0 (July 11)
-  { morning: ["Facundo", "Anibal"], afternoon: ["Leonel", "Tomas"] },       // Week 1 (July 18)
-  { morning: ["Gaston", "Josias"], afternoon: ["Santiago", "Valentino"] },  // Week 2 (July 25) - Wait, image says Santiago - Vitto. Let's use Valentino.
-  { morning: ["Leonel", "Tomas"], afternoon: ["Gaston", "Anibal"] }         // Week 3 (August 1) - Extrapolated from pattern (Leonel/Tomi and Gaston/Anibal from July 4)
-];
 
-export function getScheduleForDate(date: Date, approvedSwaps: ApprovedSwap[] = [], seedOffset: number = 0) {
-  const { weekNo, year } = getWeekNumber(date);
-  
-  // Calculate exact date of the Saturday for this week
-  const dateObj = new Date(Date.UTC(year, 0, 1)); // start of year
-  dateObj.setUTCDate(dateObj.getUTCDate() + (weekNo - 1) * 7); // add weeks
-  const day = dateObj.getUTCDay();
-  const diff = 6 - day;
-  dateObj.setUTCDate(dateObj.getUTCDate() + diff);
-  const scheduleDate = dateObj.toISOString().split('T')[0];
 
-  // Base date for Week 0 is July 11, 2026.
-  const baseDate = new Date(Date.UTC(2026, 6, 11)); // Month is 0-indexed (6 = July)
-  const diffTime = Math.abs(dateObj.getTime() - baseDate.getTime());
-  const diffWeeks = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7));
-  
-  // If dateObj is BEFORE baseDate, we still want it to map correctly using modulo
-  let weekIndex = diffWeeks % FIXED_ROTATION.length;
-  if (dateObj.getTime() < baseDate.getTime()) {
-    weekIndex = (FIXED_ROTATION.length - (diffWeeks % FIXED_ROTATION.length)) % FIXED_ROTATION.length;
-  }
 
-  let { morning, afternoon } = FIXED_ROTATION[weekIndex];
-
-  // Clone arrays to prevent mutation
-  morning = [...morning];
-  afternoon = [...afternoon];
-
-  // Apply approved swaps overrides
-  approvedSwaps.forEach(swap => {
-    if (swap.date1 === scheduleDate) {
-      morning = morning.map(m => m === swap.user1 ? swap.user2 : m);
-      afternoon = afternoon.map(m => m === swap.user1 ? swap.user2 : m);
-    }
-    if (swap.date2 === scheduleDate) {
-      morning = morning.map(m => m === swap.user2 ? swap.user1 : m);
-      afternoon = afternoon.map(m => m === swap.user2 ? swap.user1 : m);
-    }
-  });
-
-  return {
-    morning,
-    afternoon,
-    weekNo,
-    year,
-    date: scheduleDate
-  };
-}
 
 export function formatDate(dateStr: string | Date): string {
   let d: Date;
@@ -106,23 +60,35 @@ export function formatDate(dateStr: string | Date): string {
   return formatted.charAt(0).toUpperCase() + formatted.slice(1);
 }
 
-export function getAllFutureShiftsForUser(userName: string, fromDate: Date = new Date(), limit: number = 5, approvedSwaps: ApprovedSwap[] = [], seedOffset: number = 0) {
-  let searchDate = new Date(fromDate);
-  const shifts = [];
+export function getAllFutureShiftsForUser(userName: string, aiSchedules: AIScheduleWeek[] = [], limit: number = 5, approvedSwaps: ApprovedSwap[] = []) {
+  const shifts: {shift: string, date: string}[] = [];
   
-  // Search up to 2 years ahead if necessary
-  for (let i = 0; i < 104; i++) { 
-    const sched = getScheduleForDate(searchDate, approvedSwaps, seedOffset);
-    if (sched.morning.includes(userName)) {
+  // Sort schedules by date
+  const sortedSchedules = [...aiSchedules].sort((a, b) => a.date.localeCompare(b.date));
+
+  for (const sched of sortedSchedules) {
+    let morning = [...sched.morning];
+    let afternoon = [...sched.afternoon];
+
+    // Apply approved swaps overrides
+    approvedSwaps.forEach(swap => {
+      if (swap.date1 === sched.date) {
+        morning = morning.map(m => m === swap.user1 ? swap.user2 : m);
+        afternoon = afternoon.map(m => m === swap.user1 ? swap.user2 : m);
+      }
+      if (swap.date2 === sched.date) {
+        morning = morning.map(m => m === swap.user2 ? swap.user1 : m);
+        afternoon = afternoon.map(m => m === swap.user2 ? swap.user1 : m);
+      }
+    });
+
+    if (morning.includes(userName)) {
       shifts.push({ shift: "Mañana", date: sched.date });
-    } else if (sched.afternoon.includes(userName)) {
+    } else if (afternoon.includes(userName)) {
       shifts.push({ shift: "Tarde", date: sched.date });
     }
     
     if (shifts.length >= limit) break;
-    
-    // advance 1 week
-    searchDate.setUTCDate(searchDate.getUTCDate() + 7);
   }
   return shifts;
 }

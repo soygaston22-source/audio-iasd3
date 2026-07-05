@@ -2,298 +2,146 @@ const fs = require('fs');
 const file = 'src/app/page.tsx';
 let content = fs.readFileSync(file, 'utf8');
 
-// 1. Interface
-if (!content.includes('interface SpecialShift')) {
+// 1. Add aiSchedules state
+if (!content.includes('const [aiSchedules, setAiSchedules]')) {
   content = content.replace(
-    'interface FutureChangeRequest {',
-    `export interface SpecialShift {
-  id: string;
-  title: string;
-  date: string;
-  members: string[];
-  fileUrl?: string;
-  fileName?: string;
-}
-
-interface FutureChangeRequest {`
+    'const [announcements, setAnnouncements] = useState<Announcement[]>([]);',
+    'const [announcements, setAnnouncements] = useState<Announcement[]>([]);\n  const [aiSchedules, setAiSchedules] = useState<any[]>([]);'
   );
 }
 
-// 2. State
-if (!content.includes('const [specialShifts, setSpecialShifts] = useState')) {
+// 2. Add aiSchedules to onSnapshot global
+if (!content.includes('if (data.aiSchedules) setAiSchedules(data.aiSchedules);')) {
   content = content.replace(
-    'const [futureRequests, setFutureRequests] = useState<FutureChangeRequest[]>([]);',
-    `const [futureRequests, setFutureRequests] = useState<FutureChangeRequest[]>([]);
-  const [specialShifts, setSpecialShifts] = useState<SpecialShift[]>([]);`
+    'if (data.youtubeLiveUrl !== undefined) setYoutubeLiveUrl(data.youtubeLiveUrl);',
+    'if (data.youtubeLiveUrl !== undefined) setYoutubeLiveUrl(data.youtubeLiveUrl);\n        if (data.aiSchedules) setAiSchedules(data.aiSchedules);'
   );
 }
 
-// 3. onSnapshot Firebase sync
-if (!content.includes('if (data.specialShifts) setSpecialShifts(data.specialShifts);')) {
+// 3. Update the fallback getScheduleForDate
+if (content.includes('const sched = getScheduleForDate(new Date(), [], 0);')) {
   content = content.replace(
-    'if (data.futureRequests) setFutureRequests(data.futureRequests);',
-    `if (data.futureRequests) setFutureRequests(data.futureRequests);
-        if (data.specialShifts) setSpecialShifts(data.specialShifts);`
+    'const sched = getScheduleForDate(new Date(), [], 0);',
+    `const sched = { morning: [], afternoon: [], date: new Date().toISOString().split('T')[0] };`
   );
-  
   content = content.replace(
-    'futureRequests: []',
-    `futureRequests: [],
-          specialShifts: []`
+    'seedOffset: 0,',
+    'seedOffset: 0,\n          aiSchedules: [],'
   );
 }
 
-// 4. Props to UserView and AdminView
-if (!content.includes('specialShifts={specialShifts}')) {
-  content = content.replace(
-    '<UserView ',
-    `<UserView \n            specialShifts={specialShifts}`
-  );
-  content = content.replace(
-    '<AdminView ',
-    `<AdminView \n            specialShifts={specialShifts}`
-  );
-}
+// 4. Update the RollOver Logic
+const oldRollover = `      const expectedSched = getScheduleForDate(today, approvedSwaps, seedOffset);
 
-// 5. UserView signature and UI
-if (!content.includes('specialShifts: SpecialShift[]')) {
-  content = content.replace(
-    'approvedSwaps: ApprovedSwap[], onConfirm: () => void',
-    `approvedSwaps: ApprovedSwap[], specialShifts: SpecialShift[], onConfirm: () => void`
-  );
-  content = content.replace(
-    'approvedSwaps, onConfirm',
-    `approvedSwaps, specialShifts, onConfirm`
-  );
-  
-  // Inject into UserView UI (right before "Mis Próximos Turnos")
-  const userUI = `
-          {/* Turnos Especiales */}
-          {specialShifts.filter(ss => ss.members.includes(userName)).length > 0 && (
-            <div style={{ marginBottom: '24px' }}>
-              <h4 style={{ marginBottom: '12px', fontSize: '1.1rem', color: '#ff9800' }}>⭐ Mis Turnos Especiales</h4>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {specialShifts.filter(ss => ss.members.includes(userName)).map((shift) => (
-                  <div key={shift.id} className="glass-card" style={{ border: '1px solid rgba(255, 152, 0, 0.5)', background: 'rgba(255, 152, 0, 0.1)' }}>
-                    <h3 style={{ color: '#ff9800', marginBottom: '8px' }}>{shift.title}</h3>
-                    <p style={{ fontWeight: 'bold' }}>{formatDate(shift.date)}</p>
-                    <p style={{ fontSize: '0.9rem', marginTop: '8px', color: 'var(--text-muted)' }}>
-                      Junto a: {shift.members.filter(m => m !== userName).join(', ')}
-                    </p>
-                    {shift.fileUrl && (
-                      <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid rgba(255,152,0,0.3)' }}>
-                        <a 
-                          href={shift.fileUrl} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="btn btn-outline"
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 12px', fontSize: '0.9rem', color: '#ff9800', borderColor: '#ff9800' }}
-                        >
-                          📎 Ver Archivo Adjunto ({shift.fileName})
-                        </a>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+      if (schedule.date !== expectedSched.date) {`;
 
-          <h4 style={{ marginBottom: '12px', fontSize: '1.1rem' }}>Mis Próximos Turnos</h4>`;
-  content = content.replace(`<h4 style={{ marginBottom: '12px', fontSize: '1.1rem' }}>Mis Próximos Turnos</h4>`, userUI);
-}
+const newRollover = `      // Find the currently applicable schedule from aiSchedules
+      const todayStr = today.toISOString().split('T')[0];
+      // We want the closest aiSchedule whose date is >= today, or just take the first future one.
+      const expectedSched = aiSchedules.find(s => s.date >= todayStr) || schedule;
 
-// 6. AdminView signature and UI
-if (!content.includes('specialShifts: SpecialShift[]')) {
-  // Add to props
-  content = content.replace(
-    'approvedSwaps: ApprovedSwap[], onChangeAssignment: (member: string) => void',
-    `approvedSwaps: ApprovedSwap[], specialShifts: SpecialShift[], onChangeAssignment: (member: string) => void`
-  );
-  content = content.replace(
-    'approvedSwaps, onChangeAssignment',
-    `approvedSwaps, specialShifts, onChangeAssignment`
-  );
-  
-  // Inject state into AdminView
-  const adminState = `
-  const [specialShiftTitle, setSpecialShiftTitle] = useState("");
-  const [specialShiftDate, setSpecialShiftDate] = useState("");
-  const [specialShiftMembers, setSpecialShiftMembers] = useState<string[]>([]);
-  const [specialShiftFile, setSpecialShiftFile] = useState<File | null>(null);
-  const [isCreatingSpecial, setIsCreatingSpecial] = useState(false);
-  const specialFileInputRef = useRef<HTMLInputElement>(null);
+      if (expectedSched && expectedSched.date && schedule.date !== expectedSched.date && expectedSched.date > schedule.date) {`;
 
-  const handleToggleSpecialMember = (member: string) => {
-    setSpecialShiftMembers(prev => 
-      prev.includes(member) ? prev.filter(m => m !== member) : [...prev, member]
-    );
-  };
+content = content.replace(oldRollover, newRollover);
 
-  const handleCreateSpecialShift = async () => {
-    if (!specialShiftTitle.trim() || !specialShiftDate || specialShiftMembers.length === 0) {
-      alert("Debes escribir un título, seleccionar una fecha y al menos un miembro.");
-      return;
-    }
-    setIsCreatingSpecial(true);
-    try {
-      let fileUrl = "";
-      let fileName = "";
-      if (specialShiftFile) {
-        const storageRef = ref(storage, \`special_shifts/\${Date.now()}_\${specialShiftFile.name}\`);
-        const snapshot = await uploadBytes(storageRef, specialShiftFile);
-        fileUrl = await getDownloadURL(snapshot.ref);
-        fileName = specialShiftFile.name;
+// 5. Delete random reassign button and function
+// Let's remove handleRandomReassign
+content = content.replace(/const handleRandomReassign = async \(\) => \{[\s\S]*?alert\("¡Éxito! Todos los turnos han sido reasignados aleatoriamente y los trueques han sido limpiados\."\);\n  \};/g, '');
+
+// Also remove it from AdminView props
+content = content.replace(/onRandomReassign: \(\) => void, /g, '');
+content = content.replace(/onRandomReassign, /g, '');
+
+// And remove the UI block in AdminView for random reassign
+const randomBlock = `          <div className="glass-card" style={{ padding: '16px', background: 'rgba(244, 67, 54, 0.1)', border: '1px solid rgba(244, 67, 54, 0.3)' }}>
+            <h4 style={{ color: '#f44336', marginBottom: '8px' }}>🎲 Reasignar Todos los Turnos (Peligro)</h4>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '12px' }}>
+              Al presionar este botón, se calculará una nueva rotación aleatoria para todas las semanas futuras y se borrarán todos los trueques pendientes o aprobados.
+            </p>
+            <button 
+              className="btn btn-primary"
+              onClick={() => {
+                if(window.confirm("¿Estás 100% seguro? Esto borrará los trueques y reasignará todos los turnos futuros aleatoriamente para todos los miembros.")) {
+                  onRandomReassign();
+                }
+              }}
+              style={{ width: '100%', backgroundColor: '#d32f2f' }}
+            >
+              🎲 Asignar Aleatoriamente
+            </button>
+          </div>`;
+content = content.replace(randomBlock, '');
+
+// 6. Update UserView's call to getAllFutureShiftsForUser
+content = content.replace(
+  'const futureShifts = getAllFutureShiftsForUser(userName, searchFrom, 5, approvedSwaps, seedOffset);',
+  'const futureShifts = getAllFutureShiftsForUser(userName, aiSchedules, 5, approvedSwaps);'
+);
+
+// Add aiSchedules to UserView props
+content = content.replace(
+  'function UserView({ currentDate, schedule, userName, status, notifications, pendingSwaps, approvedSwaps, specialShifts, seedOffset, announcements',
+  'function UserView({ currentDate, schedule, userName, status, notifications, pendingSwaps, approvedSwaps, specialShifts, seedOffset, announcements, aiSchedules'
+);
+content = content.replace(
+  'currentDate: Date, schedule: any, userName: string, status: Status, notifications: string[], pendingSwaps: PendingSwap[], approvedSwaps: ApprovedSwap[], specialShifts: SpecialShift[], seedOffset: number, announcements: Announcement[],',
+  'currentDate: Date, schedule: any, userName: string, status: Status, notifications: string[], pendingSwaps: PendingSwap[], approvedSwaps: ApprovedSwap[], specialShifts: SpecialShift[], seedOffset: number, announcements: Announcement[], aiSchedules: any[],'
+);
+content = content.replace(
+  '<UserView \n            currentDate={currentDate}',
+  '<UserView \n            currentDate={currentDate}\n            aiSchedules={aiSchedules}'
+);
+
+// 7. Update handlePublishGrid to also write to aiSchedules
+const publishGridOld = `      await addDoc(collection(db, "announcements"), {
+        text: "Nuevo cronograma publicado",
+        type: "schedule_grid",
+        gridData: aiAdminResult,
+        timestamp: serverTimestamp(),
+        author: "Administrador (IA)"
+      });
+      alert("Cronograma publicado con éxito en Novedades.");`;
+
+const publishGridNew = `      await addDoc(collection(db, "announcements"), {
+        text: "Nuevo cronograma publicado",
+        type: "schedule_grid",
+        gridData: aiAdminResult,
+        timestamp: serverTimestamp(),
+        author: "Administrador (IA)"
+      });
+      
+      // Convert to AIScheduleWeek format and push to Firebase global state
+      if (aiAdminResult.rows && Array.isArray(aiAdminResult.rows)) {
+        const newAiWeeks = aiAdminResult.rows.map((row: any) => ({
+          date: row.dateIso || new Date().toISOString().split('T')[0], // Fallback if missing
+          morning: row.morning.split('-').map((n: string) => n.trim()),
+          afternoon: row.afternoon.split('-').map((n: string) => n.trim())
+        }));
+        
+        // Append or merge with existing aiSchedules? 
+        // Let's fetch current first, or we can just arrayUnion (but arrayUnion has limits).
+        // Since aiSchedules is just an array, we can pull the latest snapshot and append.
+        const docSnap = await getDoc(doc(db, "app_state", "global"));
+        if (docSnap.exists()) {
+           const currentSchedules = docSnap.data().aiSchedules || [];
+           // Overwrite schedules that have the same date, append new ones
+           const mergedSchedules = [...currentSchedules];
+           newAiWeeks.forEach((nw: any) => {
+              const existingIdx = mergedSchedules.findIndex(s => s.date === nw.date);
+              if (existingIdx >= 0) mergedSchedules[existingIdx] = nw;
+              else mergedSchedules.push(nw);
+           });
+           await setDoc(doc(db, "app_state", "global"), { aiSchedules: mergedSchedules }, { merge: true });
+        }
       }
 
-      const newShift: SpecialShift = {
-        id: Date.now().toString(),
-        title: specialShiftTitle.trim(),
-        date: specialShiftDate,
-        members: specialShiftMembers,
-        fileUrl,
-        fileName
-      };
-      await updateDoc(doc(db, "app_state", "global"), {
-        specialShifts: [...specialShifts, newShift]
-      });
-      setSpecialShiftTitle("");
-      setSpecialShiftDate("");
-      setSpecialShiftMembers([]);
-      setSpecialShiftFile(null);
-      alert("Turno Especial creado con éxito.");
-      
-      specialShiftMembers.forEach(member => {
-        sendPush(member, \`⭐ Nuevo Turno Especial\`, \`Has sido asignado a: \${newShift.title}\`);
-      });
-    } catch (e: any) {
-      alert("Error al crear turno especial: " + e.message);
-    } finally {
-      setIsCreatingSpecial(false);
-    }
-  };
+      alert("Cronograma publicado en Novedades y Motor Actualizado con éxito.");`;
 
-  const handleDeleteSpecialShift = async (id: string) => {
-    if (!confirm("¿Seguro que deseas eliminar este turno especial?")) return;
-    try {
-      const updated = specialShifts.filter(s => s.id !== id);
-      await updateDoc(doc(db, "app_state", "global"), {
-        specialShifts: updated
-      });
-    } catch (e: any) {
-      alert("Error al eliminar turno: " + e.message);
-    }
-  };
+content = content.replace(publishGridOld, publishGridNew);
 
-  const [newsTitle`;
-  content = content.replace(`const [newsTitle`, adminState);
-  
-  // Inject UI into AdminView (before P2P Swaps)
-  const adminUI = `
-          <div style={{ marginBottom: '2rem' }}>
-            <h3 style={{ color: '#ff9800', borderBottom: '2px solid #ff9800', paddingBottom: '8px', marginBottom: '16px' }}>
-              ⭐ Gestión de Turnos Especiales
-            </h3>
-            
-            <div className="glass-card" style={{ padding: '16px', marginBottom: '16px', border: '1px solid rgba(255, 152, 0, 0.5)' }}>
-              <h4 style={{ marginBottom: '12px' }}>Crear Nuevo Turno Especial</h4>
-              <input 
-                type="text" 
-                placeholder="Actividad (ej: Campaña Evangelística)" 
-                value={specialShiftTitle}
-                onChange={(e) => setSpecialShiftTitle(e.target.value)}
-                style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--glass-border)', background: 'rgba(0,0,0,0.05)', color: 'var(--glass-text)', marginBottom: '12px' }}
-              />
-              <input 
-                type="date" 
-                value={specialShiftDate}
-                onChange={(e) => setSpecialShiftDate(e.target.value)}
-                style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--glass-border)', background: 'rgba(0,0,0,0.05)', color: 'var(--glass-text)', marginBottom: '12px' }}
-              />
-              
-              <div style={{ marginBottom: '12px' }}>
-                <p style={{ marginBottom: '8px', fontSize: '0.9rem' }}>Seleccionar Miembros:</p>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                  {TEAM.map(member => (
-                    <button
-                      key={member}
-                      onClick={() => handleToggleSpecialMember(member)}
-                      className="btn btn-outline"
-                      style={{
-                        padding: '6px 12px',
-                        fontSize: '0.85rem',
-                        backgroundColor: specialShiftMembers.includes(member) ? 'var(--primary-red)' : 'transparent',
-                        color: specialShiftMembers.includes(member) ? 'white' : 'var(--glass-text)',
-                        borderColor: specialShiftMembers.includes(member) ? 'var(--primary-red)' : 'var(--glass-border)'
-                      }}
-                    >
-                      {member}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <input 
-                  type="file" 
-                  ref={specialFileInputRef}
-                  onChange={(e) => setSpecialShiftFile(e.target.files?.[0] || null)}
-                  style={{ display: 'none' }}
-                />
-                <button 
-                  className="btn btn-outline"
-                  onClick={() => specialFileInputRef.current?.click()}
-                  style={{ padding: '8px 16px', fontSize: '0.9rem', borderColor: '#ff9800', color: '#ff9800' }}
-                >
-                  📎 {specialShiftFile ? specialShiftFile.name : 'Adjuntar Archivo (Opcional)'}
-                </button>
-              </div>
-
-              <button 
-                className="btn btn-primary"
-                onClick={handleCreateSpecialShift}
-                disabled={isCreatingSpecial}
-                style={{ width: '100%', backgroundColor: '#ff9800' }}
-              >
-                {isCreatingSpecial ? "Creando..." : "Crear Turno Especial"}
-              </button>
-            </div>
-
-            {specialShifts.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {specialShifts.map(shift => (
-                  <div key={shift.id} className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', background: 'rgba(255, 152, 0, 0.1)', border: '1px solid rgba(255, 152, 0, 0.3)' }}>
-                    <div>
-                      <strong style={{ color: '#ff9800', display: 'block' }}>{shift.title}</strong>
-                      <span style={{ fontSize: '0.85rem', color: 'var(--glass-text)' }}>{formatDate(shift.date)}</span>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                        {shift.members.join(', ')}
-                      </div>
-                      {shift.fileUrl && (
-                        <div style={{ marginTop: '6px', fontSize: '0.85rem' }}>
-                          <a href={shift.fileUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#ff9800' }}>
-                            📎 {shift.fileName}
-                          </a>
-                        </div>
-                      )}
-                    </div>
-                    <button 
-                      onClick={() => handleDeleteSpecialShift(shift.id)}
-                      style={{ background: 'none', border: 'none', color: '#d32f2f', fontSize: '1.2rem', cursor: 'pointer', padding: '8px' }}
-                      title="Eliminar Turno"
-                    >
-                      🗑️
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div style={{ marginBottom: '2rem' }}>
-            <h3 style={{ color: '#4caf50', borderBottom: '2px solid #4caf50', paddingBottom: '8px', marginBottom: '16px' }}>`;
-  content = content.replace(`<div style={{ marginBottom: '2rem' }}>
-            <h3 style={{ color: '#4caf50', borderBottom: '2px solid #4caf50', paddingBottom: '8px', marginBottom: '16px' }}>`, adminUI);
+// Add import getDoc if not there
+if (!content.includes('getDoc,')) {
+    content = content.replace('setDoc, addDoc', 'setDoc, addDoc, getDoc');
 }
 
 fs.writeFileSync(file, content);

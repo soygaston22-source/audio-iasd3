@@ -22,7 +22,7 @@ export async function POST(req: Request) {
         "title": "Cronograma - Mes Año",
         "rows": [
           {
-            "date": "Sábado DD/MM",
+            "dateStr": "Sábado DD/MM", "dateIso": "YYYY-MM-DD",
             "morning": "Nombre1 - Nombre2",
             "afternoon": "Nombre3 - Nombre4"
           }
