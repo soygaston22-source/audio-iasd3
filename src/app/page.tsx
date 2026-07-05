@@ -1302,6 +1302,106 @@ alert("Error al publicar: " + err.message);
         <strong>Nota:</strong> Los cambios manuales dispararán notificaciones In-App automáticas a los reemplazos.
       </div>
 
+      <div style={{ marginBottom: '2rem' }}>
+        <h3 style={{ color: '#ff9800', borderBottom: '2px solid #ff9800', paddingBottom: '8px', marginBottom: '16px' }}>
+          ⭐ Gestión de Turnos Especiales
+        </h3>
+        
+        <div className="glass-card" style={{ padding: '16px', marginBottom: '16px', border: '1px solid rgba(255, 152, 0, 0.5)' }}>
+          <h4 style={{ marginBottom: '12px' }}>Crear Nuevo Turno Especial</h4>
+          <input 
+            type="text" 
+            placeholder="Actividad (ej: Campaña Evangelística)" 
+            value={specialShiftTitle}
+            onChange={(e) => setSpecialShiftTitle(e.target.value)}
+            style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--glass-border)', background: 'rgba(0,0,0,0.05)', color: 'var(--glass-text)', marginBottom: '12px' }}
+          />
+          <input 
+            type="date" 
+            value={specialShiftDate}
+            onChange={(e) => setSpecialShiftDate(e.target.value)}
+            style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--glass-border)', background: 'rgba(0,0,0,0.05)', color: 'var(--glass-text)', marginBottom: '12px' }}
+          />
+          
+          <div style={{ marginBottom: '12px' }}>
+            <p style={{ marginBottom: '8px', fontSize: '0.9rem' }}>Seleccionar Miembros:</p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+              {TEAM.map(member => (
+                <button
+                  key={member}
+                  onClick={() => handleToggleSpecialMember(member)}
+                  className="btn btn-outline"
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: '0.85rem',
+                    backgroundColor: specialShiftMembers.includes(member) ? 'var(--primary-red)' : 'transparent',
+                    color: specialShiftMembers.includes(member) ? 'white' : 'var(--glass-text)',
+                    borderColor: specialShiftMembers.includes(member) ? 'var(--primary-red)' : 'var(--glass-border)'
+                  }}
+                >
+                  {member}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <input 
+              type="file" 
+              ref={specialFileInputRef}
+              onChange={(e) => setSpecialShiftFile(e.target.files?.[0] || null)}
+              style={{ display: 'none' }}
+            />
+            <button 
+              className="btn btn-outline"
+              onClick={() => specialFileInputRef.current?.click()}
+              style={{ padding: '8px 16px', fontSize: '0.9rem', borderColor: '#ff9800', color: '#ff9800' }}
+            >
+              📎 {specialShiftFile ? specialShiftFile.name : 'Adjuntar Archivo (Opcional)'}
+            </button>
+          </div>
+
+          <button 
+            className="btn btn-primary"
+            onClick={handleCreateSpecialShift}
+            disabled={isCreatingSpecial}
+            style={{ width: '100%', backgroundColor: '#ff9800' }}
+          >
+            {isCreatingSpecial ? "Creando..." : "Crear Turno Especial"}
+          </button>
+        </div>
+
+        {specialShifts.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {specialShifts.map(shift => (
+              <div key={shift.id} className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', background: 'rgba(255, 152, 0, 0.1)', border: '1px solid rgba(255, 152, 0, 0.3)' }}>
+                <div>
+                  <strong style={{ color: '#ff9800', display: 'block' }}>{shift.title}</strong>
+                  <span style={{ fontSize: '0.85rem', color: 'var(--glass-text)' }}>{formatDate(shift.date)}</span>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    {shift.members.join(', ')}
+                  </div>
+                  {shift.fileUrl && (
+                    <div style={{ marginTop: '6px', fontSize: '0.85rem' }}>
+                      <a href={shift.fileUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#ff9800' }}>
+                        📎 {shift.fileName}
+                      </a>
+                    </div>
+                  )}
+                </div>
+                <button 
+                  onClick={() => handleDeleteSpecialShift(shift.id)}
+                  style={{ background: 'none', border: 'none', color: '#d32f2f', fontSize: '1.2rem', cursor: 'pointer', padding: '8px' }}
+                  title="Eliminar Turno"
+                >
+                  🗑️
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {approvedSwaps.length > 0 && (
         <div style={{ marginBottom: '2rem' }}>
           <h3 style={{ color: '#4caf50', borderBottom: '2px solid #4caf50', paddingBottom: '8px', marginBottom: '16px' }}>
