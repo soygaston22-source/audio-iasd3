@@ -748,7 +748,7 @@ export default function Home() {
   );
 }
 
-function UserView({ currentDate, schedule, userName, status, notifications, pendingSwaps, approvedSwaps, specialShifts, seedOffset, announcements, onConfirm, onIssue, onFutureIssue, onChangePassword, onClearNotifications, onAcceptSwap, onRejectSwap }: { 
+function UserView({ currentDate, schedule, userName, status, notifications, pendingSwaps, approvedSwaps, specialShifts, seedOffset, announcements, instagramPostUrl, instagramProfileUrl, onConfirm, onIssue, onFutureIssue, onChangePassword, onClearNotifications, onAcceptSwap, onRejectSwap }: { 
   currentDate: Date, schedule: any, userName: string, status: Status, notifications: string[], pendingSwaps: PendingSwap[], approvedSwaps: ApprovedSwap[], specialShifts: SpecialShift[], seedOffset: number, announcements: Announcement[],
   instagramPostUrl: string,
   instagramProfileUrl: string, onConfirm: () => void, onIssue: () => void, onFutureIssue: (date: string, shift: string, targetUser: string, targetDate: string, targetShift: string) => void, onChangePassword: () => void, onClearNotifications: () => void, onAcceptSwap: (swap: PendingSwap) => void, onRejectSwap: (swap: PendingSwap) => void
@@ -1015,6 +1015,45 @@ function UserView({ currentDate, schedule, userName, status, notifications, pend
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* Instagram Stories Button */}
+      {instagramProfileUrl && (
+        <div style={{ marginBottom: '1.5rem', marginTop: '1.5rem' }}>
+          <a 
+            href={instagramProfileUrl.includes('/stories/') ? instagramProfileUrl : (instagramProfileUrl + (instagramProfileUrl.endsWith('/') ? '' : '/') + 'stories')}
+            target="_blank" rel="noopener noreferrer"
+            className="btn"
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: 'linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%)', color: 'white', border: 'none', fontWeight: 'bold', padding: '16px', borderRadius: '12px', fontSize: '1.1rem', boxShadow: '0 4px 12px rgba(225, 48, 108, 0.4)' }}
+          >
+            📸 Ver Historias de Hoy en Instagram
+          </a>
+        </div>
+      )}
+
+      {/* Instagram Post/Reel Embed */}
+      {instagramPostUrl && (
+        <div className="glass-card" style={{ padding: '0', overflow: 'hidden', marginBottom: '2rem', background: 'white', borderRadius: '12px', border: '1px solid rgba(225, 48, 108, 0.2)' }}>
+          <iframe 
+            src={(() => {
+              try {
+                const u = new URL(instagramPostUrl);
+                u.search = '';
+                let finalUrl = u.toString();
+                if (!finalUrl.endsWith('/')) finalUrl += '/';
+                finalUrl += 'embed';
+                return finalUrl;
+              } catch {
+                return instagramPostUrl;
+              }
+            })()} 
+            width="100%" 
+            height="480" 
+            frameBorder="0" 
+            scrolling="no" 
+            allowTransparency={true}
+          ></iframe>
         </div>
       )}
 
