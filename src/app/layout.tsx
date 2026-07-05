@@ -31,7 +31,7 @@ export default function RootLayout({
   return (
     <html lang="es">
       <body className={inter.className}>
-        <div className="mobile-container">
+        <div className="app-container">
           {children}
         </div>
       </body>
